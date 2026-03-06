@@ -48,8 +48,10 @@ export function validateRom(rom) {
   if (sum === 0xFFFFFFFF) {
     stages.push(pass('CHECKSUM', 'Checksum', `0x${storedCs.toString(16).toUpperCase().padStart(8,'0')} – valid`))
   } else {
-    stages.push(fail('CHECKSUM', 'Checksum',
-      `Sum is 0x${sum.toString(16).toUpperCase()}, expected 0xFFFFFFFF. Stored: 0x${storedCs.toString(16).toUpperCase().padStart(8,'0')}`))
+    stages.push(warn('CHECKSUM', 'Checksum',
+      `Sum is 0x${sum.toString(16).toUpperCase()}, expected 0xFFFFFFFF. ` +
+      `Stored: 0x${storedCs.toString(16).toUpperCase().padStart(8,'0')}. ` +
+      `ROM may have been patched without checksum correction – common and usually harmless.`))
   }
 
   // ── Stage 4: Entry Point ──────────────────────────────────────────
