@@ -103,11 +103,17 @@ export function assembleRom(prolog, modules, romSize, base) {
   let prologPatched = prolog
   if (layout.length > 0 && layout[0].delta !== 0 && !layout[0].inserted) {
     const firstKept = kept[0]
-    if (firstKept && !firstKept.inserted && prolog[0] === 0x4E && prolog[1] === 0xF9) {
-      const view = new DataView(prolog.buffer, prolog.byteOffset, prolog.byteLength)
-      const oldEntry = view.getUint32(2, false)
-      // Only patch if old entry was inside the first module's original range
-      if (oldEntry >= firstKept.address && oldEntry < firstKept.endSkip) {
+    if (firstKept && !firstKept.inserted) {
+      const pView = new DataView(prolog.buffer, prolog.byteOffset, prolog.byteLength)
+      let oldEntry = null
+      // Standard format: type word at 0, JMP at offset 2, target at offset 4
+      if (prolog.length >= 8 && prolog[2] === 0x4E && prolog[3] === 0xF9) {
+        oldEntry = pView.getUint32(4, false)
+      // Legacy: JMP directly at offset 0, target at offset 2
+      } else if (prolog.length >= 6 && prolog[0] === 0x4E && prolog[1] === 0xF9) {
+        oldEntry = pView.getUint32(2, false)
+      }
+      if (oldEntry != null && oldEntry >= firstKept.address && oldEntry < firstKept.endSkip) {
         const newEntry = oldEntry + layout[0].delta
         prologPatched = patchProlog(prolog, newEntry)
         warnings.push(`Prolog JMP target patched: 0x${oldEntry.toString(16)} → 0x${newEntry.toString(16)}`)

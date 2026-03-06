@@ -34,8 +34,16 @@ export function patchRomTag(moduleData, delta) {
 }
 
 /**
- * Patch the JMP entry-point address at the very start of the ROM prolog.
- * The prolog begins with:  4E F9 xx xx xx xx  (JMP <absolute>)
+ * Patch the JMP entry-point address in the ROM prolog.
+ *
+ * Standard Amiga ROM layout:
+ *   Offset 0: type word ($1111/$1114)
+ *   Offset 2: $4EF9 (JMP)
+ *   Offset 4: entry address (4 bytes)
+ *
+ * Some ROMs have JMP directly at offset 0:
+ *   Offset 0: $4EF9 (JMP)
+ *   Offset 2: entry address (4 bytes)
  *
  * @param {Uint8Array} prolog
  * @param {number} newEntry  New absolute Amiga address for the JMP target
@@ -44,7 +52,11 @@ export function patchRomTag(moduleData, delta) {
 export function patchProlog(prolog, newEntry) {
   const data = prolog.slice()
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  if (data[0] === 0x4E && data[1] === 0xF9) {
+  if (data.length >= 8 && data[2] === 0x4E && data[3] === 0xF9) {
+    // Standard: type word at 0, JMP at 2, target at 4
+    view.setUint32(4, newEntry >>> 0, false)
+  } else if (data.length >= 6 && data[0] === 0x4E && data[1] === 0xF9) {
+    // Legacy: JMP at 0, target at 2
     view.setUint32(2, newEntry >>> 0, false)
   }
   return data

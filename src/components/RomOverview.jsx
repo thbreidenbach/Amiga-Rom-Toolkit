@@ -17,10 +17,10 @@ export function RomOverview({ rom, components, onSaveComponent, onSaveAll }) {
   if (!rom) return null
 
   const fields = [
-    ['File',         rom.filename],
+    ['File',         rom.filename + (rom.wasSwapped ? '  [BYTE-SWAPPED → auto-corrected]' : '')],
     ['Size',         `${rom.size / 1024} KB (${rom.size.toLocaleString()} bytes)`],
     ['Base Address', hex(rom.base)],
-    ['Entry Point',  rom.entryPoint ? hex(rom.entryPoint) : '(no JMP found)'],
+    ['Entry Point',  rom.entryPoint != null ? `${hex(rom.entryPoint)} (JMP @+${rom.jmpOffset})` : '(no JMP found)'],
     ['KS Version',   rom.version ? `${rom.version}.${rom.revision}` : '(unknown)'],
   ]
 
@@ -42,7 +42,7 @@ export function RomOverview({ rom, components, onSaveComponent, onSaveAll }) {
       <div style={styles.hexTitle}>First 32 bytes</div>
       <div style={styles.hex}>
         {Array.from(rom.raw.slice(0, 32)).map((b, i) => (
-          <span key={i} style={{ ...(i < 6 ? styles.hexHi : styles.hexByte), marginRight: (i+1)%4===0?8:0 }}>
+          <span key={i} style={{ ...(i < 8 ? styles.hexHi : styles.hexByte), marginRight: (i+1)%4===0?8:0 }}>
             {b.toString(16).toUpperCase().padStart(2,'0')}{' '}
           </span>
         ))}

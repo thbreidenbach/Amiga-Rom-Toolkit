@@ -55,18 +55,38 @@ export function validateRom(rom) {
   }
 
   // ── Stage 4: Entry Point ──────────────────────────────────────────
-  if (rom[0] === 0x4E && rom[1] === 0xF9) {
-    const entry = view.getUint32(2, false)
+  // Standard Amiga ROM: type word at offset 0, JMP ($4EF9) at offset 2,
+  // entry address at offset 4.  Some ROMs have JMP at offset 0.
+  let entryFound = false
+  if (rom[2] === 0x4E && rom[3] === 0xF9) {
+    // Standard format: type word + JMP at offset 2
+    const entry = view.getUint32(4, false)
     const inRange = entry >= base && entry < base + rom.length
     if (inRange) {
-      stages.push(pass('ENTRY', 'Entry Point', `JMP → 0x${entry.toString(16).toUpperCase()} (in ROM range)`))
+      const typeWord = view.getUint16(0, false)
+      stages.push(pass('ENTRY', 'Entry Point',
+        `Type $${typeWord.toString(16).toUpperCase()} · JMP @+2 → 0x${entry.toString(16).toUpperCase()} (in ROM range)`))
     } else {
       stages.push(fail('ENTRY', 'Entry Point',
         `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range [0x${base.toString(16)}, 0x${(base+rom.length).toString(16)})`))
     }
-  } else {
+    entryFound = true
+  } else if (rom[0] === 0x4E && rom[1] === 0xF9) {
+    // Non-standard: JMP directly at offset 0
+    const entry = view.getUint32(2, false)
+    const inRange = entry >= base && entry < base + rom.length
+    if (inRange) {
+      stages.push(pass('ENTRY', 'Entry Point', `JMP @+0 → 0x${entry.toString(16).toUpperCase()} (in ROM range)`))
+    } else {
+      stages.push(fail('ENTRY', 'Entry Point',
+        `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range [0x${base.toString(16)}, 0x${(base+rom.length).toString(16)})`))
+    }
+    entryFound = true
+  }
+
+  if (!entryFound) {
     stages.push(fail('ENTRY', 'Entry Point',
-      `First two bytes are 0x${rom[0].toString(16)} 0x${rom[1].toString(16)}, expected 0x4E 0xF9 (JMP)`))
+      `No JMP ($4EF9) found at offset 0 or 2. Bytes: ${Array.from(rom.slice(0,8)).map(b=>'$'+b.toString(16).toUpperCase().padStart(2,'0')).join(' ')}`))
   }
 
   // ── Stage 5: RomTag Scan ──────────────────────────────────────────
