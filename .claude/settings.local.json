@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vite build)",
+      "Bash(where node)",
+      "Bash(where npm)",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(PATH=\"$PATH:/c/Users/thors/AppData/Roaming/npm\")",
+      "Bash(ls /c/Users/thors/OneDrive/Dokumente/GitHub/Amiga-Rom-Toolkit/node_modules/.bin/vite*)",
+      "Bash(./node_modules/.bin/vite build)",
+      "Bash(cmd.exe /c \"node --version\")",
+      "Bash(git add src/App.jsx src/components/AssemblerView.jsx src/components/FileLoader.jsx src/components/ModuleList.jsx src/components/RomOverview.jsx src/engine/RomAssembler.js src/engine/RomPatcher.js src/engine/RomTagScanner.js src/hooks/useRomToolkit.js)",
+      "Bash(git commit:*)",
+      "Bash(git push origin master)"
+    ]
+  }
+}
