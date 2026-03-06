@@ -11,7 +11,8 @@
       "Bash(cmd.exe /c \"node --version\")",
       "Bash(git add src/App.jsx src/components/AssemblerView.jsx src/components/FileLoader.jsx src/components/ModuleList.jsx src/components/RomOverview.jsx src/engine/RomAssembler.js src/engine/RomPatcher.js src/engine/RomTagScanner.js src/hooks/useRomToolkit.js)",
       "Bash(git commit:*)",
-      "Bash(git push origin master)"
+      "Bash(git push origin master)",
+      "Bash(git add src/engine/RomValidator.js)"
     ]
   }
 }
