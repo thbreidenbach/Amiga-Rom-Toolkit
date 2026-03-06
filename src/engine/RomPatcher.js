@@ -78,8 +78,8 @@ export function fixChecksum(rom) {
     sum = (sum + view.getUint32(i, false)) >>> 0
   }
 
-  // Step 3: complement
-  const checksum = ((0x100000000 - sum) >>> 0)
+  // Step 3: one's complement (sum + ~sum === 0xFFFFFFFF)
+  const checksum = (~sum) >>> 0
 
   // Step 4: write
   view.setUint32(csOffset, checksum, false)

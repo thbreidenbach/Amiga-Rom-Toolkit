@@ -2,7 +2,9 @@
 
 import { patchRomTag, patchProlog, fixChecksum, padToSize } from './RomPatcher.js'
 
-const ALIGN = 4
+const ALIGN    = 4
+const SIZE_256K = 262144
+const SIZE_512K = 524288
 
 function alignUp(n, align) {
   const r = n % align
@@ -15,6 +17,7 @@ function alignUp(n, align) {
  * @param {Uint8Array}  prolog        Bytes before the first RomTag
  * @param {object[]}    modules       Ordered module descriptors
  *   Each module: { name, address, data, replacement, padTo, action, endSkip, initPtr }
+ *   action: 'keep' | 'replace' | 'remove' | 'insert'
  * @param {number}      romSize       Target ROM size in bytes (256K or 512K)
  * @param {number}      base          ROM base address (e.g. 0xF80000)
  * @returns {{ rom: Uint8Array, layout: object[], warnings: string[] }}
@@ -30,11 +33,14 @@ export function assembleRom(prolog, modules, romSize, base) {
   for (const mod of kept) {
     cursor = alignUp(cursor, ALIGN)
     const newAddress = base + cursor
-    const delta      = newAddress - mod.address
+
+    // Inserted modules have no original address; use newAddress as origin
+    const origAddress = mod.inserted ? newAddress : mod.address
+    const delta       = newAddress - origAddress
 
     let data = mod.replacement ?? mod.data
 
-    // Apply padding if requested or if we're replacing a same-slot module
+    // Apply padding if requested
     if (mod.padTo != null) {
       try {
         data = padToSize(data, mod.padTo)
@@ -44,34 +50,50 @@ export function assembleRom(prolog, modules, romSize, base) {
     }
 
     // Warn about internal pointer breakage when delta != 0 and no padding
-    if (delta !== 0 && mod.padTo == null) {
+    if (delta !== 0 && mod.padTo == null && !mod.inserted) {
       warnings.push(
         `Module "${mod.name}" relocated by 0x${Math.abs(delta).toString(16)} bytes. ` +
         `Internal pointers (beyond RomTag header) are NOT adjusted – consider padding to original size.`
       )
     }
 
-    // Patch RomTag header pointers
+    // Patch RomTag header pointers (skip for raw inserted binaries)
     let patched = data
-    if (delta !== 0) {
+    if (delta !== 0 && !mod.inserted) {
       patched = patchRomTag(data, delta)
     }
 
     layout.push({
       name:        mod.name,
-      originalAddress: mod.address,
+      originalAddress: origAddress,
       newOffset:   cursor,
       newAddress,
       delta,
       size:        patched.length,
       data:        patched,
+      inserted:    !!mod.inserted,
     })
 
     cursor += patched.length
   }
 
+  // --- Size enforcement ------------------------------------------------
+  if (cursor > SIZE_512K) {
+    throw new Error(
+      `Assembled payload is ${cursor} bytes – exceeds the absolute 512 KB limit (${SIZE_512K} bytes). ` +
+      `Remove or shrink modules.`
+    )
+  }
+
   if (cursor > romSize) {
-    throw new Error(`Assembled size ${cursor} bytes exceeds ROM size ${romSize} bytes`)
+    throw new Error(`Assembled size ${cursor} bytes exceeds target ROM size ${romSize} bytes`)
+  }
+
+  if (cursor > SIZE_256K) {
+    warnings.push(
+      `Payload is ${cursor} bytes (${(cursor / 1024).toFixed(1)} KB) – exceeds 256 KB. ` +
+      `This ROM will NOT fit in a 256 KB flash chip; a 512 KB flash is required.`
+    )
   }
 
   // --- Build ROM buffer ----------------------------------------------
@@ -79,9 +101,9 @@ export function assembleRom(prolog, modules, romSize, base) {
 
   // Write prolog (patch JMP entry if first module moved)
   let prologPatched = prolog
-  if (layout.length > 0 && layout[0].delta !== 0) {
+  if (layout.length > 0 && layout[0].delta !== 0 && !layout[0].inserted) {
     const firstKept = kept[0]
-    if (firstKept && prolog[0] === 0x4E && prolog[1] === 0xF9) {
+    if (firstKept && !firstKept.inserted && prolog[0] === 0x4E && prolog[1] === 0xF9) {
       const view = new DataView(prolog.buffer, prolog.byteOffset, prolog.byteLength)
       const oldEntry = view.getUint32(2, false)
       // Only patch if old entry was inside the first module's original range

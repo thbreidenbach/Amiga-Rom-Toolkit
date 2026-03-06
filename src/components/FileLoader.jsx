@@ -37,8 +37,8 @@ export function FileLoader({ onLoad, error }) {
       >
         <div style={styles.dropIcon}>◈</div>
         <div style={styles.dropText}>DROP ROM IMAGE HERE</div>
-        <div style={styles.dropSub}>or click to browse · .rom / .bin · 256 KB or 512 KB</div>
-        <input id="rom-file-input" type="file" accept=".rom,.bin" style={styles.hidden} onChange={onInputChange} />
+        <div style={styles.dropSub}>or click to browse · any binary · 256 KB or 512 KB</div>
+        <input id="rom-file-input" type="file" style={styles.hidden} onChange={onInputChange} />
       </div>
 
       {error && <div style={styles.error}>{error}</div>}

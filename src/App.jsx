@@ -39,13 +39,18 @@ export default function App() {
       {/* Content */}
       <main style={styles.main}>
         {tk.error && (
-          <div style={styles.globalError}>⚠ {tk.error}</div>
+          <div style={styles.globalError}>&#x26A0; {tk.error}</div>
         )}
 
         {/* Step 1: Analyse */}
         {tk.step >= 1 && (
           <>
-            <RomOverview rom={tk.rom} />
+            <RomOverview
+              rom={tk.rom}
+              components={tk.components}
+              onSaveComponent={tk.saveComponent}
+              onSaveAll={tk.saveAllComponents}
+            />
             <ValidatorPanel
               validationResult={tk.validationResult?.target === 'original' ? tk.validationResult : null}
               assemblyResult={null}
@@ -61,6 +66,10 @@ export default function App() {
             onReplace={tk.setModuleReplacement}
             onClear={tk.clearModuleReplacement}
             onPadToggle={tk.setPadTo}
+            onInsert={tk.insertModule}
+            onRemoveInserted={tk.removeInserted}
+            onSaveModule={tk.saveModule}
+            onSaveAll={tk.saveAllModules}
           />
         )}
 

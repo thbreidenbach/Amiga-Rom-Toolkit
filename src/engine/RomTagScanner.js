@@ -89,3 +89,65 @@ export function scanRomTags(raw, base) {
 
   return romtags.sort((a, b) => a.offset - b.offset)
 }
+
+/**
+ * Build a full component map of the ROM including prolog, modules,
+ * inter-module gaps, and trailing space.
+ * @param {Uint8Array} raw
+ * @param {number} base
+ * @param {Uint8Array} prolog
+ * @param {RomTag[]} romtags  Output of scanRomTags, sorted by offset
+ * @returns {Component[]}
+ */
+export function buildComponentMap(raw, base, prolog, romtags) {
+  const components = []
+  const checksumSize = 4
+
+  if (prolog.length > 0) {
+    components.push({
+      kind: 'prolog', name: 'PROLOG (boot code)',
+      offset: 0, address: base, size: prolog.length,
+      data: prolog,
+    })
+  }
+
+  let cursor = prolog.length
+
+  for (const tag of romtags) {
+    if (tag.offset > cursor) {
+      const gapSize = tag.offset - cursor
+      components.push({
+        kind: 'gap', name: `GAP (${gapSize} bytes)`,
+        offset: cursor, address: base + cursor, size: gapSize,
+        data: raw.slice(cursor, tag.offset),
+      })
+    }
+
+    const moduleEnd = Math.min(tag.endSkip - base, raw.length)
+    components.push({
+      kind: 'module', name: tag.name,
+      offset: tag.offset, address: tag.address, size: tag.size,
+      data: raw.slice(tag.offset, moduleEnd), romtag: tag,
+    })
+
+    cursor = moduleEnd
+  }
+
+  const trailEnd = raw.length - checksumSize
+  if (cursor < trailEnd) {
+    const trailSize = trailEnd - cursor
+    components.push({
+      kind: 'trailing', name: `TRAILING SPACE (${trailSize} bytes)`,
+      offset: cursor, address: base + cursor, size: trailSize,
+      data: raw.slice(cursor, trailEnd),
+    })
+  }
+
+  components.push({
+    kind: 'checksum', name: 'CHECKSUM',
+    offset: raw.length - checksumSize, address: base + raw.length - checksumSize,
+    size: checksumSize, data: raw.slice(raw.length - checksumSize),
+  })
+
+  return components
+}
