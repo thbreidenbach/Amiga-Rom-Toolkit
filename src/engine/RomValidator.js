@@ -134,8 +134,11 @@ export function validateRom(rom) {
     let name = '(unknown)'
     if (nameOff >= 0 && nameOff < rom.length) {
       let end = nameOff
-      while (end < rom.length && rom[end] !== 0) end++
+      // Read C-string, limit to 64 bytes to avoid runaway reads
+      while (end < rom.length && end < nameOff + 64 && rom[end] !== 0) end++
       name = new TextDecoder('latin1').decode(rom.slice(nameOff, end))
+      // Strip non-printable control characters and trim whitespace
+      name = name.replace(/[\x00-\x1F\x7F]/g, '').trim()
     }
 
     romtags.push({ offset: i, address: expected, endSkip, name, namePtr, initPtr })
@@ -160,7 +163,8 @@ export function validateRom(rom) {
 
   // ── Stage 6: Required Modules ─────────────────────────────────────
   const ksVersion  = view.getUint16(0x0C, false)
-  const foundNames = new Set(romtags.map(t => t.name))
+  // Normalize names for matching (trim, lowercase)
+  const foundNames = new Set(romtags.map(t => t.name.trim()))
   const missing    = REQUIRED_MODULES.filter(m => !foundNames.has(m))
 
   // utility.library only expected in KS 2.0+ (version >= 36)
@@ -168,17 +172,24 @@ export function validateRom(rom) {
   if (ksVersion >= 36) warnedList.push(...WARNED_MODULES_V2)
   const missingWarn = warnedList.filter(m => !foundNames.has(m))
 
-  const foundList = romtags.map(t => t.name).join(', ')
+  const foundList = romtags.map(t => `${t.name} @${t.offset.toString(16)}`).join(', ')
 
   if (missing.length > 0) {
+    // Provide diagnostic: check for near-matches (corrupt name pointers)
+    const diag = missing.map(m => {
+      const near = romtags.find(t => t.name.includes(m) || m.includes(t.name.trim()))
+      return near
+        ? `"${m}" – near-match: "${near.name}" @0x${near.offset.toString(16)} (namePtr=0x${near.namePtr.toString(16)})`
+        : `"${m}" – not found`
+    })
     stages.push(fail('REQUIRED', 'Required Modules',
-      `Missing: ${missing.join(', ')}\nFound (${romtags.length}): ${foundList}`))
+      `Missing: ${missing.join(', ')}\nFound (${romtags.length}): ${foundList}\nDiag: ${diag.join('; ')}`))
   } else if (missingWarn.length > 0) {
     stages.push(warn('REQUIRED', 'Required Modules',
-      `All critical modules present. Missing (non-fatal): ${missingWarn.join(', ')}`))
+      `All critical modules present. Missing (non-fatal): ${missingWarn.join(', ')}\nFound (${romtags.length}): ${foundList}`))
   } else {
     stages.push(pass('REQUIRED', 'Required Modules',
-      `All required modules present (${romtags.length} total)`))
+      `All required modules present (${romtags.length} total): ${foundList}`))
   }
 
   // ── Stage 7: Pointer Sanity ───────────────────────────────────────

@@ -14,22 +14,57 @@ function alignUp(n, align) {
 /**
  * Assemble a complete ROM image from prolog + module list.
  *
+ * When no modules have been modified (all 'keep', none removed/inserted),
+ * returns a byte-identical copy of the original ROM with a fresh checksum.
+ *
  * @param {Uint8Array}  prolog        Bytes before the first RomTag
  * @param {object[]}    modules       Ordered module descriptors
  *   Each module: { name, address, data, replacement, padTo, action, endSkip, initPtr }
  *   action: 'keep' | 'replace' | 'remove' | 'insert'
  * @param {number}      romSize       Target ROM size in bytes (256K or 512K)
  * @param {number}      base          ROM base address (e.g. 0xF80000)
- * @param {Uint8Array}  [footerMeta]  Original ROM's footer metadata (last 16 bytes)
+ * @param {Uint8Array}  [originalRom] Full original ROM image (for byte-identical unmodified output)
  * @returns {{ rom: Uint8Array, layout: object[], warnings: string[] }}
  */
-export function assembleRom(prolog, modules, romSize, base, footerMeta) {
+export function assembleRom(prolog, modules, romSize, base, originalRom) {
   const warnings = []
   const layout   = []
-  let cursor     = prolog.length
 
-  // --- Build layout --------------------------------------------------
   const kept = modules.filter(m => m.action !== 'remove')
+  const anyChanges = kept.some(m => m.action !== 'keep' || m.inserted) ||
+                     modules.some(m => m.action === 'remove')
+
+  // ── Fast path: no modifications → return original ROM with fresh checksum ─
+  if (!anyChanges && originalRom) {
+    const rom = new Uint8Array(originalRom)
+
+    for (const mod of kept) {
+      layout.push({
+        name:        mod.name,
+        originalAddress: mod.address,
+        newOffset:   mod.offset,
+        newAddress:  mod.address,
+        delta:       0,
+        size:        mod.data.length,
+        data:        mod.data,
+        inserted:    false,
+      })
+    }
+
+    // Ensure ROM size field and checksum are correct
+    const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
+    romView.setUint32(romSize - 20, romSize, false)
+    const romWithChecksum = fixChecksum(rom)
+
+    return { rom: romWithChecksum, layout, warnings }
+  }
+
+  // ── Rebuild path: modules have been modified ───────────────────────
+  // Start with original ROM as base to preserve trailing space, fill
+  // patterns, and any data not covered by modules or gaps.
+  const rom = originalRom ? new Uint8Array(originalRom) : new Uint8Array(romSize)
+
+  let cursor = prolog.length
 
   for (const mod of kept) {
     // Preserve inter-module gap data from original ROM.
@@ -111,8 +146,10 @@ export function assembleRom(prolog, modules, romSize, base, footerMeta) {
     )
   }
 
-  // --- Build ROM buffer ----------------------------------------------
-  const rom = new Uint8Array(romSize) // zero-filled
+  // --- Write modified ROM buffer ----------------------------------------
+  // Zero the module area (prolog end → footer) so shifted modules don't
+  // leave ghost data from the original ROM
+  rom.fill(0, prolog.length, romSize - 24)
 
   // Write prolog (patch JMP entry if first module moved)
   let prologPatched = prolog
@@ -148,8 +185,8 @@ export function assembleRom(prolog, modules, romSize, base, footerMeta) {
 
   // --- Write ROM footer fields ----------------------------------------
   // Preserve original footer metadata (last 16 bytes: chip timing/config data)
-  if (footerMeta && footerMeta.length > 0) {
-    rom.set(footerMeta, romSize - footerMeta.length)
+  if (originalRom) {
+    rom.set(originalRom.slice(romSize - 16), romSize - 16)
   }
   const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
   // ROM size field at -20 bytes from end

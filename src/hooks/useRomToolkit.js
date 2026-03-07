@@ -182,9 +182,8 @@ export function useRomToolkit() {
   const assemble = useCallback(() => {
     setError(null)
     try {
-      // Pass original ROM's footer metadata (last 16 bytes: chip timing/config)
-      const footerMeta = rom.raw.slice(rom.raw.length - 16)
-      const result = assembleRom(rom.prolog, modules, rom.size, rom.base, footerMeta)
+      // Pass full original ROM so unmodified assemblies are byte-identical
+      const result = assembleRom(rom.prolog, modules, rom.size, rom.base, rom.raw)
       setAssemblyResult(result)
       const validation = validateRom(result.rom)
       setValidationResult({ ...validation, target: 'assembled' })
