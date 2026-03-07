@@ -39,19 +39,37 @@ export function validateRom(rom) {
     stages.push(pass('ALIGN', 'Alignment Check', 'Length is a multiple of 4'))
   }
 
-  // ── Stage 3: Checksum ─────────────────────────────────────────────
+  // ── Stage 3: Checksum (ones' complement addition) ────────────────
+  // Sum all 32-bit big-endian words using ones' complement arithmetic:
+  // accumulate without truncation, then fold carries back into the sum.
+  // A valid ROM's total (including the stored checksum) must equal 0xFFFFFFFF.
   let sum = 0
   for (let i = 0; i < rom.length; i += 4) {
-    sum = (sum + view.getUint32(i, false)) >>> 0
+    sum += view.getUint32(i, false)
   }
-  const storedCs = view.getUint32(rom.length - 4, false)
+  // Fold carries (ones' complement)
+  while (sum > 0xFFFFFFFF) {
+    sum = (sum % 0x100000000) + Math.floor(sum / 0x100000000)
+  }
+  // Checksum field is at -24 bytes from end of ROM
+  const storedCs = view.getUint32(rom.length - 24, false)
   if (sum === 0xFFFFFFFF) {
     stages.push(pass('CHECKSUM', 'Checksum', `0x${storedCs.toString(16).toUpperCase().padStart(8,'0')} – valid`))
   } else {
-    stages.push(warn('CHECKSUM', 'Checksum',
-      `Sum is 0x${sum.toString(16).toUpperCase()}, expected 0xFFFFFFFF. ` +
-      `Stored: 0x${storedCs.toString(16).toUpperCase().padStart(8,'0')}. ` +
-      `ROM may have been patched without checksum correction – common and usually harmless.`))
+    stages.push(fail('CHECKSUM', 'Checksum',
+      `Sum is 0x${sum.toString(16).toUpperCase().padStart(8,'0')}, expected 0xFFFFFFFF. ` +
+      `Stored checksum (@-24): 0x${storedCs.toString(16).toUpperCase().padStart(8,'0')}.`))
+  }
+
+  // ── Stage 3b: Embedded ROM Size ─────────────────────────────────
+  // At -20 bytes from end, a 32-bit word holds the ROM size in bytes
+  const embeddedSize = view.getUint32(rom.length - 20, false)
+  if (embeddedSize === rom.length) {
+    stages.push(pass('ROMSIZE', 'Embedded ROM Size',
+      `${embeddedSize} bytes – matches file size`))
+  } else {
+    stages.push(warn('ROMSIZE', 'Embedded ROM Size',
+      `Embedded size ${embeddedSize} bytes ≠ file size ${rom.length} bytes`))
   }
 
   // ── Stage 4: Entry Point ──────────────────────────────────────────

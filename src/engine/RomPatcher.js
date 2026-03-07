@@ -65,12 +65,15 @@ export function patchProlog(prolog, newEntry) {
 /**
  * Compute and insert the Kickstart ROM checksum.
  *
- * Algorithm:
- *   1. Zero the last 4 bytes (checksum slot).
- *   2. Sum all 32-bit big-endian longwords (mod 2³²).
- *   3. checksum = (0x1_0000_0000 - sum) & 0xFFFFFFFF
- *   4. Write checksum into last 4 bytes.
- *   Result: sum of all longs including checksum == 0xFFFFFFFF
+ * Algorithm (Amiga ones' complement checksum):
+ *   1. Zero the checksum field (24 bytes from end of ROM).
+ *   2. Sum all 32-bit big-endian longwords using ones' complement
+ *      addition (accumulate, then fold carries back into the sum).
+ *   3. checksum = bitwise NOT of the sum (~sum)
+ *   4. Write checksum at -24 bytes from end.
+ *   Result: ones' complement sum of all longs == 0xFFFFFFFF
+ *
+ * Reference: Kreeblah/AmigaROMUtil CalculateAmigaROMChecksum()
  *
  * @param {Uint8Array} rom  Complete ROM image (must be multiple of 4)
  * @returns {Uint8Array}    ROM with valid checksum
@@ -79,15 +82,19 @@ export function fixChecksum(rom) {
   if (rom.length % 4 !== 0) throw new Error('ROM length not a multiple of 4')
   const data = rom.slice()
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
-  const csOffset = data.length - 4
+  const csOffset = data.length - 24  // Checksum is 24 bytes from end
 
-  // Step 1: zero the slot
+  // Step 1: zero the checksum slot
   view.setUint32(csOffset, 0, false)
 
-  // Step 2: sum all longs
+  // Step 2: sum all longs using ones' complement addition
   let sum = 0
   for (let i = 0; i < data.length; i += 4) {
-    sum = (sum + view.getUint32(i, false)) >>> 0
+    sum += view.getUint32(i, false)
+  }
+  // Fold carries back into sum (ones' complement)
+  while (sum > 0xFFFFFFFF) {
+    sum = (sum % 0x100000000) + Math.floor(sum / 0x100000000)
   }
 
   // Step 3: one's complement (sum + ~sum === 0xFFFFFFFF)
@@ -96,10 +103,13 @@ export function fixChecksum(rom) {
   // Step 4: write
   view.setUint32(csOffset, checksum, false)
 
-  // Verify
+  // Verify: ones' complement sum of all words must be 0xFFFFFFFF
   let verify = 0
   for (let i = 0; i < data.length; i += 4) {
-    verify = (verify + view.getUint32(i, false)) >>> 0
+    verify += view.getUint32(i, false)
+  }
+  while (verify > 0xFFFFFFFF) {
+    verify = (verify % 0x100000000) + Math.floor(verify / 0x100000000)
   }
   if (verify !== 0xFFFFFFFF) throw new Error(`Checksum verification failed: got 0x${verify.toString(16)}`)
 

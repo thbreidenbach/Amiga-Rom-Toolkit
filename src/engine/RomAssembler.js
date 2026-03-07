@@ -127,7 +127,12 @@ export function assembleRom(prolog, modules, romSize, base) {
     rom.set(entry.data, entry.newOffset)
   }
 
-  // --- Fix checksum --------------------------------------------------
+  // --- Write ROM footer fields ----------------------------------------
+  const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
+  // ROM size field at -20 bytes from end
+  romView.setUint32(romSize - 20, romSize, false)
+
+  // --- Fix checksum (ones' complement, written at -24 from end) ------
   const romWithChecksum = fixChecksum(rom)
 
   return { rom: romWithChecksum, layout, warnings }

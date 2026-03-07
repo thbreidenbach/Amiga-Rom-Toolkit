@@ -101,7 +101,8 @@ export function scanRomTags(raw, base) {
  */
 export function buildComponentMap(raw, base, prolog, romtags) {
   const components = []
-  const checksumSize = 4
+  // ROM footer: last 24 bytes contain checksum (@-24), ROM size (@-20), and metadata
+  const footerSize = 24
 
   if (prolog.length > 0) {
     components.push({
@@ -133,7 +134,7 @@ export function buildComponentMap(raw, base, prolog, romtags) {
     cursor = moduleEnd
   }
 
-  const trailEnd = raw.length - checksumSize
+  const trailEnd = raw.length - footerSize
   if (cursor < trailEnd) {
     const trailSize = trailEnd - cursor
     components.push({
@@ -143,10 +144,11 @@ export function buildComponentMap(raw, base, prolog, romtags) {
     })
   }
 
+  // ROM footer: checksum (4 bytes @-24), ROM size (4 bytes @-20), + 16 bytes metadata
   components.push({
-    kind: 'checksum', name: 'CHECKSUM',
-    offset: raw.length - checksumSize, address: base + raw.length - checksumSize,
-    size: checksumSize, data: raw.slice(raw.length - checksumSize),
+    kind: 'checksum', name: 'ROM FOOTER (checksum + size + metadata)',
+    offset: raw.length - footerSize, address: base + raw.length - footerSize,
+    size: footerSize, data: raw.slice(raw.length - footerSize),
   })
 
   return components
