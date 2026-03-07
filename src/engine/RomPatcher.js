@@ -24,35 +24,49 @@ export function onesComplementSum(view, length, skipOffset) {
 }
 
 /**
- * Patch all absolute pointers inside a RomTag header when a module
+ * Patch absolute pointers inside a RomTag header when a module
  * is relocated by `delta` bytes.
  *
- * Only the six fields that are defined by the Resident structure spec
- * are touched.  Internal code pointers inside the module body are NOT
- * adjusted – that would require a full relocation table which Amiga
- * ROM modules generally do not carry.  Padding with zeros (same-size
- * replacement) avoids this problem entirely.
+ * Self-referential fields (rt_MatchTag, rt_EndSkip) are ALWAYS adjusted
+ * because they must point to the module's own boundaries.
  *
- * @param {Uint8Array} moduleData  Raw bytes of the module (starts at RomTag)
- * @param {number} delta           new_address - original_address
- * @returns {Uint8Array}           Patched copy
+ * Content pointers (rt_Name, rt_IdString, rt_Init) are ONLY adjusted if
+ * they point within this module's ORIGINAL address range [origAddress,
+ * origEndSkip).  Pointers that reference data outside the module (e.g.
+ * exec.library's rt_Name pointing into the prolog) must NOT be moved.
+ *
+ * @param {Uint8Array} moduleData   Raw bytes of the module (starts at RomTag)
+ * @param {number}     delta        new_address - original_address
+ * @param {number}     origAddress  Module's original absolute base address
+ * @param {number}     origEndSkip  Module's original rt_EndSkip (exclusive end)
+ * @returns {Uint8Array}            Patched copy
  */
-export function patchRomTag(moduleData, delta) {
+export function patchRomTag(moduleData, delta, origAddress, origEndSkip) {
   if (delta === 0) return moduleData
   const data = moduleData.slice()
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength)
 
-  const patch32 = (offset) => {
+  // Always adjust self-referential boundary fields
+  const matchTag = view.getUint32(2, false)
+  view.setUint32(2, (matchTag + delta) >>> 0, false)
+
+  const endSkip = view.getUint32(6, false)
+  view.setUint32(6, (endSkip + delta) >>> 0, false)
+
+  // Only adjust content pointers if they point within this module's
+  // original address range – pointers to the prolog or other modules
+  // must be left untouched.
+  const patchIfInRange = (offset) => {
     const old = view.getUint32(offset, false)
     if (old === 0) return   // Don't relocate NULL pointers
-    view.setUint32(offset, (old + delta) >>> 0, false)
+    if (old >= origAddress && old < origEndSkip) {
+      view.setUint32(offset, (old + delta) >>> 0, false)
+    }
   }
 
-  patch32(2)   // rt_MatchTag  → MUST point to itself
-  patch32(6)   // rt_EndSkip   → end of module
-  patch32(14)  // rt_Name      → name string pointer
-  patch32(18)  // rt_IdString  → id string pointer
-  patch32(22)  // rt_Init      → init function/table pointer
+  patchIfInRange(14)  // rt_Name      → name string pointer
+  patchIfInRange(18)  // rt_IdString  → id string pointer
+  patchIfInRange(22)  // rt_Init      → init function/table pointer
 
   return data
 }

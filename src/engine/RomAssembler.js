@@ -2,7 +2,7 @@
 
 import { patchRomTag, patchProlog, fixChecksum, padToSize } from './RomPatcher.js'
 
-const ALIGN    = 4
+const ALIGN    = 2   // 68000 requires word (2-byte) alignment, not longword
 const SIZE_256K = 262144
 const SIZE_512K = 524288
 
@@ -60,7 +60,7 @@ export function assembleRom(prolog, modules, romSize, base) {
     // Patch RomTag header pointers (skip for raw inserted binaries)
     let patched = data
     if (delta !== 0 && !mod.inserted) {
-      patched = patchRomTag(data, delta)
+      patched = patchRomTag(data, delta, origAddress, mod.endSkip)
     }
 
     layout.push({
