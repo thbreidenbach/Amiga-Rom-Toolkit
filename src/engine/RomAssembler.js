@@ -1,6 +1,12 @@
 // RomAssembler.js – Assembles module list into a new ROM image
+//
+// Strategy: IN-PLACE assembly.  Kept modules stay at their original ROM
+// offsets so that absolute pointers embedded in 68000 machine code remain
+// valid.  Only removed modules are zeroed out, and replaced modules are
+// written at their original offset (padded to original size by default).
+// Inserted modules are appended after the last resident module.
 
-import { patchRomTag, patchProlog, fixChecksum, padToSize } from './RomPatcher.js'
+import { patchRomTag, fixChecksum, padToSize } from './RomPatcher.js'
 
 const ALIGN    = 2   // 68000 requires word (2-byte) alignment, not longword
 const SIZE_256K = 262144
@@ -14,16 +20,18 @@ function alignUp(n, align) {
 /**
  * Assemble a complete ROM image from prolog + module list.
  *
- * When no modules have been modified (all 'keep', none removed/inserted),
- * returns a byte-identical copy of the original ROM with a fresh checksum.
+ * Uses an IN-PLACE strategy: kept/replaced modules stay at their original
+ * ROM offsets so that absolute 68000 pointers inside module code remain
+ * valid.  Removed modules are zeroed out.  Inserted modules are appended
+ * after the last resident module.
  *
  * @param {Uint8Array}  prolog        Bytes before the first RomTag
  * @param {object[]}    modules       Ordered module descriptors
- *   Each module: { name, address, data, replacement, padTo, action, endSkip, initPtr }
+ *   Each module: { name, address, data, replacement, padTo, action, endSkip, initPtr, offset }
  *   action: 'keep' | 'replace' | 'remove' | 'insert'
  * @param {number}      romSize       Target ROM size in bytes (256K or 512K)
  * @param {number}      base          ROM base address (e.g. 0xF80000)
- * @param {Uint8Array}  [originalRom] Full original ROM image (for byte-identical unmodified output)
+ * @param {Uint8Array}  [originalRom] Full original ROM image
  * @returns {{ rom: Uint8Array, layout: object[], warnings: string[] }}
  */
 export function assembleRom(prolog, modules, romSize, base, originalRom) {
@@ -51,7 +59,6 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
       })
     }
 
-    // Ensure ROM size field and checksum are correct
     const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
     romView.setUint32(romSize - 20, romSize, false)
     const romWithChecksum = fixChecksum(rom)
@@ -59,137 +66,160 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
     return { rom: romWithChecksum, layout, warnings }
   }
 
-  // ── Rebuild path: modules have been modified ───────────────────────
-  // Start with original ROM as base to preserve trailing space, fill
-  // patterns, and any data not covered by modules or gaps.
+  // ── In-place rebuild: start from original ROM ─────────────────────
   const rom = originalRom ? new Uint8Array(originalRom) : new Uint8Array(romSize)
 
-  let cursor = prolog.length
+  // Write prolog (unmodified – entry point hasn't moved since modules stay in place)
+  rom.set(prolog, 0)
 
-  for (const mod of kept) {
-    // Preserve inter-module gap data from original ROM.
-    // These gaps contain strings, data tables, and other data referenced
-    // by modules via pointers (e.g. rt_Name, rt_IdString).
-    let preGapOffset = null
-    if (mod.preGap && mod.preGap.length > 0 && !mod.inserted) {
-      preGapOffset = cursor
-      cursor += mod.preGap.length
+  // Track the high-water mark (end of last module/gap) for appending inserts
+  let highWater = prolog.length
+
+  // ── Phase 1: Process original modules (keep / replace / remove) ───
+  for (const mod of modules) {
+    if (mod.inserted) continue   // handle inserts in Phase 2
+
+    if (mod.action === 'remove') {
+      // Zero out ONLY the removed module's own data area (offset → endSkip).
+      // Do NOT zero the preGap – it may contain strings or data tables
+      // referenced by pointers in the PREVIOUS module (which is kept).
+      const modStart = mod.offset
+      const modEnd   = Math.min(mod.endSkip - base, romSize - 24)
+      rom.fill(0, modStart, modEnd)
+
+      warnings.push(`Module "${mod.name}" removed – ${mod.size} bytes zeroed at offset 0x${mod.offset.toString(16)}`)
+      continue
     }
 
-    cursor = alignUp(cursor, ALIGN)
-    const newAddress = base + cursor
-
-    // Inserted modules have no original address; use newAddress as origin
-    const origAddress = mod.inserted ? newAddress : mod.address
-    const delta       = newAddress - origAddress
-
+    // action === 'keep' or 'replace'
+    const origOffset = mod.offset
     let data = mod.replacement ?? mod.data
 
-    // Apply padding if requested
-    if (mod.padTo != null) {
-      try {
-        data = padToSize(data, mod.padTo)
-      } catch (e) {
-        throw new Error(`Module "${mod.name}": ${e.message}`)
+    if (mod.action === 'replace') {
+      // For replacements: pad to original module size to stay in-place.
+      // Never exceed the original module size – overwriting past the
+      // boundary would corrupt the next module or inter-module gap.
+      const targetSize = Math.min(mod.padTo ?? mod.size, mod.size)
+      if (data.length > targetSize) {
+        throw new Error(
+          `Module "${mod.name}": replacement (${data.length} bytes) exceeds ` +
+          `original module size (${targetSize} bytes). Use a smaller replacement.`
+        )
       }
-    }
+      if (data.length < targetSize) {
+        data = padToSize(data, targetSize)
+      }
 
-    // Warn about internal pointer breakage when delta != 0 and no padding
-    if (delta !== 0 && mod.padTo == null && !mod.inserted) {
+      // The replacement binary may have its own RomTag with pointers
+      // compiled for a different base address.  Patch it so rt_MatchTag
+      // and rt_EndSkip match the actual ROM location.
+      if (data.length >= 26 && data[0] === 0x4A && data[1] === 0xFC) {
+        const dv = new DataView(data.buffer, data.byteOffset, data.byteLength)
+        const replMatch = dv.getUint32(2, false)
+        const targetAddr = mod.address  // original address in ROM
+        if (replMatch !== targetAddr) {
+          const replDelta = targetAddr - replMatch
+          data = patchRomTag(data, replDelta, replMatch, dv.getUint32(6, false))
+          warnings.push(
+            `Module "${mod.name}": replacement RomTag patched ` +
+            `(delta=0x${Math.abs(replDelta).toString(16)}, was 0x${replMatch.toString(16)} → 0x${targetAddr.toString(16)})`
+          )
+        }
+      }
+      rom.set(data, origOffset)
+
       warnings.push(
-        `Module "${mod.name}" relocated by 0x${Math.abs(delta).toString(16)} bytes. ` +
-        `Internal pointers (beyond RomTag header) are NOT adjusted – consider padding to original size.`
+        `Module "${mod.name}" replaced in-place at offset 0x${origOffset.toString(16)} ` +
+        `(${data.length} bytes, padded to ${mod.size})`
       )
+    } else {
+      // 'keep' – module stays exactly as-is in the original ROM.
+      // Since we started from a copy of originalRom, no write needed.
     }
 
-    // Patch RomTag header pointers (skip for raw inserted binaries)
-    let patched = data
-    if (delta !== 0 && !mod.inserted) {
-      // Owned range includes preGap – pointers to gap data (strings, etc.)
-      // must also be adjusted since the gap moves with the module
-      const gapSize = mod.preGap ? mod.preGap.length : 0
-      patched = patchRomTag(data, delta, origAddress - gapSize, mod.endSkip)
-    }
+    // Track the end of the last kept/replaced module for appending inserts.
+    // Use endSkip (the module's declared boundary) rather than data length,
+    // because there may be gap data between endSkip and the next module.
+    const modEnd = mod.endSkip - base
+    if (modEnd > highWater) highWater = modEnd
 
     layout.push({
-      name:        mod.name,
-      originalAddress: origAddress,
-      newOffset:   cursor,
-      newAddress,
-      delta,
-      size:        patched.length,
-      data:        patched,
-      inserted:    !!mod.inserted,
-      preGapOffset,
-      preGapData:  mod.preGap || null,
+      name:            mod.name,
+      originalAddress: mod.address,
+      newOffset:       origOffset,
+      newAddress:      mod.address,       // unchanged!
+      delta:           0,                 // always 0 for in-place
+      size:            mod.action === 'replace' ? data.length : mod.data.length,
+      data:            mod.action === 'replace' ? data : mod.data,
+      inserted:        false,
     })
+  }
 
-    cursor += patched.length
+  // ── Phase 2: Append inserted modules after the last resident ──────
+  const inserts = modules.filter(m => m.inserted)
+
+  if (inserts.length > 0) {
+    // Find free space: start after the highest module endSkip
+    // (accounting for any gap/trailing data)
+    let cursor = highWater
+
+    for (const mod of inserts) {
+      cursor = alignUp(cursor, ALIGN)
+      const newAddress = base + cursor
+
+      if (cursor + mod.data.length > romSize - 24) {
+        throw new Error(
+          `Cannot insert "${mod.name}" (${mod.data.length} bytes): ` +
+          `would overflow ROM at offset 0x${cursor.toString(16)} ` +
+          `(${romSize - 24 - cursor} bytes free)`
+        )
+      }
+
+      // Write inserted module data
+      rom.set(mod.data, cursor)
+
+      layout.push({
+        name:            mod.name,
+        originalAddress: newAddress,
+        newOffset:       cursor,
+        newAddress,
+        delta:           0,
+        size:            mod.data.length,
+        data:            mod.data,
+        inserted:        true,
+      })
+
+      warnings.push(
+        `Module "${mod.name}" inserted at offset 0x${cursor.toString(16)} (${mod.data.length} bytes)`
+      )
+
+      cursor += mod.data.length
+    }
   }
 
   // --- Size enforcement ------------------------------------------------
-  if (cursor > SIZE_512K) {
+  // (in-place keeps can't overflow, but inserts might)
+  const totalUsed = layout.reduce((max, e) => Math.max(max, e.newOffset + e.size), prolog.length)
+
+  if (totalUsed > romSize - 24) {
     throw new Error(
-      `Assembled payload is ${cursor} bytes – exceeds the absolute 512 KB limit (${SIZE_512K} bytes). ` +
-      `Remove or shrink modules.`
+      `Assembled payload extends to offset 0x${totalUsed.toString(16)} – ` +
+      `exceeds ROM size ${romSize} bytes (footer starts at 0x${(romSize - 24).toString(16)})`
     )
   }
 
-  if (cursor > romSize) {
-    throw new Error(`Assembled size ${cursor} bytes exceeds target ROM size ${romSize} bytes`)
-  }
-
-  if (cursor > SIZE_256K) {
+  if (totalUsed > SIZE_256K && romSize === SIZE_256K) {
     warnings.push(
-      `Payload is ${cursor} bytes (${(cursor / 1024).toFixed(1)} KB) – exceeds 256 KB. ` +
-      `This ROM will NOT fit in a 256 KB flash chip; a 512 KB flash is required.`
+      `Payload extends to 0x${totalUsed.toString(16)} (${(totalUsed / 1024).toFixed(1)} KB) – ` +
+      `exceeds 256 KB. This ROM will NOT fit in a 256 KB flash chip.`
     )
-  }
-
-  // --- Write modified ROM buffer ----------------------------------------
-  // Zero the module area (prolog end → footer) so shifted modules don't
-  // leave ghost data from the original ROM
-  rom.fill(0, prolog.length, romSize - 24)
-
-  // Write prolog (patch JMP entry if first module moved)
-  let prologPatched = prolog
-  if (layout.length > 0 && layout[0].delta !== 0 && !layout[0].inserted) {
-    const firstKept = kept[0]
-    if (firstKept && !firstKept.inserted) {
-      const pView = new DataView(prolog.buffer, prolog.byteOffset, prolog.byteLength)
-      let oldEntry = null
-      // Standard format: type word at 0, JMP at offset 2, target at offset 4
-      if (prolog.length >= 8 && prolog[2] === 0x4E && prolog[3] === 0xF9) {
-        oldEntry = pView.getUint32(4, false)
-      // Legacy: JMP directly at offset 0, target at offset 2
-      } else if (prolog.length >= 6 && prolog[0] === 0x4E && prolog[1] === 0xF9) {
-        oldEntry = pView.getUint32(2, false)
-      }
-      if (oldEntry != null && oldEntry >= firstKept.address && oldEntry < firstKept.endSkip) {
-        const newEntry = oldEntry + layout[0].delta
-        prologPatched = patchProlog(prolog, newEntry)
-        warnings.push(`Prolog JMP target patched: 0x${oldEntry.toString(16)} → 0x${newEntry.toString(16)}`)
-      }
-    }
-  }
-
-  rom.set(prologPatched, 0)
-
-  for (const entry of layout) {
-    // Write inter-module gap data first (preserves strings, tables, etc.)
-    if (entry.preGapData && entry.preGapData.length > 0 && entry.preGapOffset != null) {
-      rom.set(entry.preGapData, entry.preGapOffset)
-    }
-    rom.set(entry.data, entry.newOffset)
   }
 
   // --- Write ROM footer fields ----------------------------------------
-  // Preserve original footer metadata (last 16 bytes: chip timing/config data)
   if (originalRom) {
     rom.set(originalRom.slice(romSize - 16), romSize - 16)
   }
   const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
-  // ROM size field at -20 bytes from end
   romView.setUint32(romSize - 20, romSize, false)
 
   // --- Fix checksum (ones' complement, written at -24 from end) ------
