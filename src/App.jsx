@@ -21,7 +21,7 @@ export default function App() {
     <div style={styles.app}>
       {/* Header */}
       <header style={styles.header}>
-        <div style={styles.logo}>AMIGA ROM TOOLKIT</div>
+        <div style={styles.logo}>AMIGA ROM TOOLKIT <span style={styles.ver}>v2</span></div>
         <div style={styles.nav}>
           {STEPS.map((s, i) => (
             <button
@@ -90,6 +90,7 @@ export default function App() {
             validationResult={tk.validationResult?.target === 'assembled' ? tk.validationResult : null}
             assemblyResult={tk.assemblyResult}
             onExport={tk.exportRom}
+            onExportByteSwapped={tk.exportByteSwapped}
           />
         )}
       </main>
@@ -101,6 +102,7 @@ const styles = {
   app:         { minHeight: '100vh', background: '#0a0a0f' },
   header:      { display: 'flex', alignItems: 'center', gap: 24, padding: '12px 32px', background: '#0d1218', borderBottom: '1px solid #1a2530', position: 'sticky', top: 0, zIndex: 100 },
   logo:        { fontFamily: "'Orbitron', sans-serif", fontSize: 16, fontWeight: 900, color: '#ff6b00', letterSpacing: 4, flexShrink: 0 },
+  ver:         { fontSize: 10, color: '#334455', letterSpacing: 1, fontWeight: 400 },
   nav:         { display: 'flex', gap: 4, flex: 1 },
   navBtn:      { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, background: 'none', border: '1px solid #1a2530', color: '#445566', padding: '5px 14px', cursor: 'pointer', letterSpacing: 2 },
   navActive:   { border: '1px solid #ff6b00', color: '#ff6b00', background: '#1a0d00' },

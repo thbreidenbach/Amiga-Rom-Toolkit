@@ -1,12 +1,18 @@
 // RomValidator.js – Multi-stage ROM image validation
+// v2 – ones' complement checksum per Kreeblah/AmigaROMUtil
+
+import { onesComplementSum } from './RomPatcher.js'
 
 const VALID_SIZES    = [262144, 524288]
 const BASE_BY_SIZE   = { 262144: 0xFC0000, 524288: 0xF80000 }
 const ROMTAG_MAGIC   = 0x4AFC
 
-// Modules that must be present for a valid Kickstart 2.x/3.x ROM
+// Modules that must be present for any valid Kickstart ROM
 const REQUIRED_MODULES = ['exec.library', 'dos.library', 'graphics.library', 'intuition.library', 'expansion.library']
-const WARNED_MODULES   = ['trackdisk.device', 'layers.library', 'utility.library']
+// Modules only expected in KS 2.0+ (version >= 36)
+const WARNED_MODULES_V2 = ['utility.library']
+// Modules expected in all versions
+const WARNED_MODULES_ALL = ['trackdisk.device', 'layers.library']
 
 function pass(id, name, detail = '')  { return { id, name, passed: true,  severity: 'ok',   detail } }
 function fail(id, name, detail = '')  { return { id, name, passed: false, severity: 'error', detail } }
@@ -39,29 +45,24 @@ export function validateRom(rom) {
     stages.push(pass('ALIGN', 'Alignment Check', 'Length is a multiple of 4'))
   }
 
-  // ── Stage 3: Checksum (ones' complement addition) ────────────────
-  // Sum all 32-bit big-endian words using ones' complement arithmetic:
-  // accumulate without truncation, then fold carries back into the sum.
-  // A valid ROM's total (including the stored checksum) must equal 0xFFFFFFFF.
-  let sum = 0
-  for (let i = 0; i < rom.length; i += 4) {
-    sum += view.getUint32(i, false)
-  }
-  // Fold carries (ones' complement)
-  while (sum > 0xFFFFFFFF) {
-    sum = (sum % 0x100000000) + Math.floor(sum / 0x100000000)
-  }
-  // Checksum field is at -24 bytes from end of ROM
+  // ── Stage 3: Checksum (ones' complement per Kreeblah/AmigaROMUtil) ─
+  // Sum ALL 32-bit big-endian words using ones' complement arithmetic.
+  // Per-step carry folding: after each addition, if sum > 0xFFFFFFFF,
+  // subtract 0xFFFFFFFF (fold carry back in).
+  // A valid ROM's total (including stored checksum) must equal 0xFFFFFFFF.
+  const sum = onesComplementSum(view, rom.length)
+  // Checksum field is at -24 bytes from end of ROM (per Kreeblah)
   const storedCs = view.getUint32(rom.length - 24, false)
   if (sum === 0xFFFFFFFF) {
-    stages.push(pass('CHECKSUM', 'Checksum', `0x${storedCs.toString(16).toUpperCase().padStart(8,'0')} – valid`))
+    stages.push(pass('CHECKSUM', 'Checksum',
+      `0x${storedCs.toString(16).toUpperCase().padStart(8,'0')} – valid (ones' complement verified)`))
   } else {
     stages.push(fail('CHECKSUM', 'Checksum',
-      `Sum is 0x${sum.toString(16).toUpperCase().padStart(8,'0')}, expected 0xFFFFFFFF. ` +
+      `Ones' complement sum is 0x${sum.toString(16).toUpperCase().padStart(8,'0')}, expected 0xFFFFFFFF. ` +
       `Stored checksum (@-24): 0x${storedCs.toString(16).toUpperCase().padStart(8,'0')}.`))
   }
 
-  // ── Stage 3b: Embedded ROM Size ─────────────────────────────────
+  // ── Stage 3b: Embedded ROM Size ───────────────────────────────────
   // At -20 bytes from end, a 32-bit word holds the ROM size in bytes
   const embeddedSize = view.getUint32(rom.length - 20, false)
   if (embeddedSize === rom.length) {
@@ -73,11 +74,8 @@ export function validateRom(rom) {
   }
 
   // ── Stage 4: Entry Point ──────────────────────────────────────────
-  // Standard Amiga ROM: type word at offset 0, JMP ($4EF9) at offset 2,
-  // entry address at offset 4.  Some ROMs have JMP at offset 0.
   let entryFound = false
   if (rom[2] === 0x4E && rom[3] === 0xF9) {
-    // Standard format: type word + JMP at offset 2
     const entry = view.getUint32(4, false)
     const inRange = entry >= base && entry < base + rom.length
     if (inRange) {
@@ -86,18 +84,17 @@ export function validateRom(rom) {
         `Type $${typeWord.toString(16).toUpperCase()} · JMP @+2 → 0x${entry.toString(16).toUpperCase()} (in ROM range)`))
     } else {
       stages.push(fail('ENTRY', 'Entry Point',
-        `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range [0x${base.toString(16)}, 0x${(base+rom.length).toString(16)})`))
+        `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range`))
     }
     entryFound = true
   } else if (rom[0] === 0x4E && rom[1] === 0xF9) {
-    // Non-standard: JMP directly at offset 0
     const entry = view.getUint32(2, false)
     const inRange = entry >= base && entry < base + rom.length
     if (inRange) {
       stages.push(pass('ENTRY', 'Entry Point', `JMP @+0 → 0x${entry.toString(16).toUpperCase()} (in ROM range)`))
     } else {
       stages.push(fail('ENTRY', 'Entry Point',
-        `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range [0x${base.toString(16)}, 0x${(base+rom.length).toString(16)})`))
+        `JMP target 0x${entry.toString(16).toUpperCase()} is outside ROM range`))
     }
     entryFound = true
   }
@@ -133,7 +130,6 @@ export function validateRom(rom) {
       continue
     }
 
-    // Read name
     const nameOff = namePtr - base
     let name = '(unknown)'
     if (nameOff >= 0 && nameOff < rom.length) {
@@ -148,28 +144,41 @@ export function validateRom(rom) {
   if (romtags.length === 0) {
     stages.push(fail('ROMTAGS', 'RomTag Scan', 'No valid RomTags found in ROM image.'))
   } else {
-    const issues = badRomtags.map(b => `  +0x${b.offset.toString(16)}: ${b.reason}`).join('\n')
+    // Rejected tags with wrong matchTag are normal – just data coincidence.
+    // Only warn if there are structural (endSkip) issues.
+    const structural = badRomtags.filter(b => !b.reason.includes('rt_MatchTag'))
     const detail = `${romtags.length} valid RomTag(s) found` +
-      (badRomtags.length ? `; ${badRomtags.length} rejected:\n${issues}` : '')
-    stages.push(badRomtags.length
-      ? warn('ROMTAGS', 'RomTag Scan', detail)
-      : pass('ROMTAGS', 'RomTag Scan', detail))
+      (badRomtags.length ? ` (${badRomtags.length} false $4AFC pattern(s) in data – normal)` : '')
+
+    if (structural.length > 0) {
+      const issues = structural.map(b => `  +0x${b.offset.toString(16)}: ${b.reason}`).join('\n')
+      stages.push(warn('ROMTAGS', 'RomTag Scan', detail + '\nStructural issues:\n' + issues))
+    } else {
+      stages.push(pass('ROMTAGS', 'RomTag Scan', detail))
+    }
   }
 
   // ── Stage 6: Required Modules ─────────────────────────────────────
+  const ksVersion  = view.getUint16(0x0C, false)
   const foundNames = new Set(romtags.map(t => t.name))
   const missing    = REQUIRED_MODULES.filter(m => !foundNames.has(m))
-  const missingWarn = WARNED_MODULES.filter(m => !foundNames.has(m))
+
+  // utility.library only expected in KS 2.0+ (version >= 36)
+  const warnedList = [...WARNED_MODULES_ALL]
+  if (ksVersion >= 36) warnedList.push(...WARNED_MODULES_V2)
+  const missingWarn = warnedList.filter(m => !foundNames.has(m))
+
+  const foundList = romtags.map(t => t.name).join(', ')
 
   if (missing.length > 0) {
     stages.push(fail('REQUIRED', 'Required Modules',
-      `Missing: ${missing.join(', ')}`))
+      `Missing: ${missing.join(', ')}\nFound (${romtags.length}): ${foundList}`))
   } else if (missingWarn.length > 0) {
     stages.push(warn('REQUIRED', 'Required Modules',
       `All critical modules present. Missing (non-fatal): ${missingWarn.join(', ')}`))
   } else {
     stages.push(pass('REQUIRED', 'Required Modules',
-      `All required modules present: ${REQUIRED_MODULES.join(', ')}`))
+      `All required modules present (${romtags.length} total)`))
   }
 
   // ── Stage 7: Pointer Sanity ───────────────────────────────────────

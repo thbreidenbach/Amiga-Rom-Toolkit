@@ -1,6 +1,29 @@
 // RomPatcher.js – Patches RomTag pointers and ROM checksum
 
 /**
+ * Ones' complement sum of all 32-bit big-endian longwords.
+ * Faithful port of Kreeblah/AmigaROMUtil CalculateAmigaROMChecksum().
+ *
+ * After each addition, if the result exceeds 0xFFFFFFFF (carry out),
+ * subtract 0xFFFFFFFF (fold carry back in).  This is the standard
+ * Amiga Kickstart checksum algorithm used by exec's boot code.
+ *
+ * @param {DataView} view        DataView over the ROM data
+ * @param {number}   length      Total byte length (must be multiple of 4)
+ * @param {number}   [skipOffset]  Byte offset to treat as zero (checksum generation)
+ * @returns {number}  The ones' complement sum (uint32)
+ */
+export function onesComplementSum(view, length, skipOffset) {
+  let sum = 0
+  for (let i = 0; i < length; i += 4) {
+    const word = (skipOffset != null && i === skipOffset) ? 0 : view.getUint32(i, false)
+    sum += word
+    if (sum > 0xFFFFFFFF) sum -= 0xFFFFFFFF
+  }
+  return sum
+}
+
+/**
  * Patch all absolute pointers inside a RomTag header when a module
  * is relocated by `delta` bytes.
  *
@@ -21,6 +44,7 @@ export function patchRomTag(moduleData, delta) {
 
   const patch32 = (offset) => {
     const old = view.getUint32(offset, false)
+    if (old === 0) return   // Don't relocate NULL pointers
     view.setUint32(offset, (old + delta) >>> 0, false)
   }
 
@@ -65,15 +89,13 @@ export function patchProlog(prolog, newEntry) {
 /**
  * Compute and insert the Kickstart ROM checksum.
  *
- * Algorithm (Amiga ones' complement checksum):
+ * Algorithm (Amiga ones' complement checksum per Kreeblah/AmigaROMUtil):
  *   1. Zero the checksum field (24 bytes from end of ROM).
  *   2. Sum all 32-bit big-endian longwords using ones' complement
- *      addition (accumulate, then fold carries back into the sum).
+ *      addition (per-step carry folding).
  *   3. checksum = bitwise NOT of the sum (~sum)
  *   4. Write checksum at -24 bytes from end.
  *   Result: ones' complement sum of all longs == 0xFFFFFFFF
- *
- * Reference: Kreeblah/AmigaROMUtil CalculateAmigaROMChecksum()
  *
  * @param {Uint8Array} rom  Complete ROM image (must be multiple of 4)
  * @returns {Uint8Array}    ROM with valid checksum
@@ -87,31 +109,20 @@ export function fixChecksum(rom) {
   // Step 1: zero the checksum slot
   view.setUint32(csOffset, 0, false)
 
-  // Step 2: sum all longs using ones' complement addition
-  let sum = 0
-  for (let i = 0; i < data.length; i += 4) {
-    sum += view.getUint32(i, false)
-  }
-  // Fold carries back into sum (ones' complement)
-  while (sum > 0xFFFFFFFF) {
-    sum = (sum % 0x100000000) + Math.floor(sum / 0x100000000)
-  }
+  // Step 2: ones' complement sum (skip checksum field → already zeroed)
+  const sum = onesComplementSum(view, data.length)
 
-  // Step 3: one's complement (sum + ~sum === 0xFFFFFFFF)
+  // Step 3: complement – value that makes onesCompAdd(sum, checksum) == 0xFFFFFFFF
   const checksum = (~sum) >>> 0
 
   // Step 4: write
   view.setUint32(csOffset, checksum, false)
 
-  // Verify: ones' complement sum of all words must be 0xFFFFFFFF
-  let verify = 0
-  for (let i = 0; i < data.length; i += 4) {
-    verify += view.getUint32(i, false)
+  // Verify: full ones' complement sum including checksum must be 0xFFFFFFFF
+  const verify = onesComplementSum(view, data.length)
+  if (verify !== 0xFFFFFFFF) {
+    throw new Error(`Checksum verification failed: got 0x${verify.toString(16).padStart(8, '0')}`)
   }
-  while (verify > 0xFFFFFFFF) {
-    verify = (verify % 0x100000000) + Math.floor(verify / 0x100000000)
-  }
-  if (verify !== 0xFFFFFFFF) throw new Error(`Checksum verification failed: got 0x${verify.toString(16)}`)
 
   return data
 }

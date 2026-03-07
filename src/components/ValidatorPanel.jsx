@@ -26,7 +26,7 @@ function Stage({ stage }) {
   )
 }
 
-export function ValidatorPanel({ validationResult, onExport, assemblyResult }) {
+export function ValidatorPanel({ validationResult, onExport, onExportByteSwapped, assemblyResult }) {
   if (!validationResult) return null
 
   const { stages, passed, target } = validationResult
@@ -63,13 +63,23 @@ export function ValidatorPanel({ validationResult, onExport, assemblyResult }) {
       )}
 
       {target === 'assembled' && (
-        <button
-          style={{ ...styles.exportBtn, ...(passed ? {} : styles.exportDisabled) }}
-          onClick={passed ? onExport : undefined}
-          disabled={!passed}
-        >
-          {passed ? '◈ EXPORT ROM' : 'EXPORT BLOCKED – FIX ERRORS FIRST'}
-        </button>
+        <div style={styles.exportRow}>
+          <button
+            style={{ ...styles.exportBtn, ...(passed ? {} : styles.exportDisabled) }}
+            onClick={passed ? onExport : undefined}
+            disabled={!passed}
+          >
+            {passed ? '◈ EXPORT ROM' : 'EXPORT BLOCKED – FIX ERRORS FIRST'}
+          </button>
+          {passed && onExportByteSwapped && (
+            <button
+              style={styles.exportSwapBtn}
+              onClick={onExportByteSwapped}
+            >
+              ◈ EXPORT BYTE-SWAPPED
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -92,6 +102,8 @@ const styles = {
   asmWarnings:   { marginTop: 16, background: '#0f1408', border: '1px solid #333300', borderRadius: 3, padding: 12 },
   asmWarnTitle:  { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: '#666600', letterSpacing: 2, marginBottom: 8 },
   asmWarn:       { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#aaaa44', marginBottom: 4 },
-  exportBtn:     { marginTop: 20, width: '100%', padding: '14px', fontFamily: "'Orbitron', sans-serif", fontSize: 13, letterSpacing: 3, background: '#ff6b00', color: '#000', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700 },
+  exportRow:     { marginTop: 20, display: 'flex', gap: 8 },
+  exportBtn:     { flex: 1, padding: '14px', fontFamily: "'Orbitron', sans-serif", fontSize: 13, letterSpacing: 3, background: '#ff6b00', color: '#000', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700 },
+  exportSwapBtn: { flex: 1, padding: '14px', fontFamily: "'Orbitron', sans-serif", fontSize: 11, letterSpacing: 2, background: '#112233', color: '#ff6b00', border: '1px solid #ff6b00', borderRadius: 3, cursor: 'pointer', fontWeight: 700 },
   exportDisabled:{ background: '#1a2530', color: '#334455', cursor: 'not-allowed' },
 }

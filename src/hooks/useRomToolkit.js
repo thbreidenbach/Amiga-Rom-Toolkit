@@ -1,7 +1,7 @@
 // useRomToolkit.js – Central application state hook
 
 import { useState, useCallback } from 'react'
-import { parseRom }       from '../engine/RomParser.js'
+import { parseRom, byteSwap } from '../engine/RomParser.js'
 import { scanRomTags, buildComponentMap } from '../engine/RomTagScanner.js'
 import { assembleRom }    from '../engine/RomAssembler.js'
 import { validateRom }    from '../engine/RomValidator.js'
@@ -188,11 +188,17 @@ export function useRomToolkit() {
     downloadBlob(assemblyResult.rom, `kick_custom_${Date.now()}.rom`)
   }, [assemblyResult])
 
+  const exportByteSwapped = useCallback(() => {
+    if (!assemblyResult?.rom) return
+    const swapped = byteSwap(assemblyResult.rom)
+    downloadBlob(swapped, `kick_custom_${Date.now()}_swapped.bin`)
+  }, [assemblyResult])
+
   return {
     rom, romtags, components, modules, assemblyResult, validationResult, error, step,
     loadRom, setModuleAction, setModuleReplacement, clearModuleReplacement,
     setPadTo, insertModule, removeInserted,
     saveComponent, saveAllComponents, saveModule, saveAllModules,
-    assemble, exportRom, setStep,
+    assemble, exportRom, exportByteSwapped, setStep,
   }
 }

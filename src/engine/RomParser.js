@@ -50,7 +50,7 @@ function detectByteSwap(raw) {
   return swapped > normal && swapped >= 3
 }
 
-function byteSwap(raw) {
+export function byteSwap(raw) {
   const out = new Uint8Array(raw.length)
   for (let i = 0; i < raw.length; i += 2) {
     out[i]     = raw[i + 1]
