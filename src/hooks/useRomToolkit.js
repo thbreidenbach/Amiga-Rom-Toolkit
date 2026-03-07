@@ -36,13 +36,23 @@ export function useRomToolkit() {
       const parsed = parseRom(arrayBuffer)
       const tags   = scanRomTags(parsed.raw, parsed.base)
       const comps  = buildComponentMap(parsed.raw, parsed.base, parsed.prolog, tags)
-      const mods   = tags.map(tag => ({
-        ...tag,
-        replacement: null,
-        padTo:       null,
-        action:      'keep',
-        filename:    filename,
-      }))
+      const mods   = tags.map((tag, idx) => {
+        // Calculate inter-module gap data (strings, tables, etc. between modules)
+        const prevEnd = idx === 0
+          ? parsed.prolog.length
+          : Math.min(tags[idx - 1].endSkip - parsed.base, parsed.raw.length)
+        const preGap = prevEnd < tag.offset
+          ? parsed.raw.slice(prevEnd, tag.offset)
+          : new Uint8Array(0)
+        return {
+          ...tag,
+          preGap,
+          replacement: null,
+          padTo:       null,
+          action:      'keep',
+          filename:    filename,
+        }
+      })
 
       setRom({ ...parsed, filename })
       setRomtags(tags)
@@ -172,7 +182,9 @@ export function useRomToolkit() {
   const assemble = useCallback(() => {
     setError(null)
     try {
-      const result = assembleRom(rom.prolog, modules, rom.size, rom.base)
+      // Pass original ROM's footer metadata (last 16 bytes: chip timing/config)
+      const footerMeta = rom.raw.slice(rom.raw.length - 16)
+      const result = assembleRom(rom.prolog, modules, rom.size, rom.base, footerMeta)
       setAssemblyResult(result)
       const validation = validateRom(result.rom)
       setValidationResult({ ...validation, target: 'assembled' })

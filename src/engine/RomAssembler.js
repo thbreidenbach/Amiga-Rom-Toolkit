@@ -20,9 +20,10 @@ function alignUp(n, align) {
  *   action: 'keep' | 'replace' | 'remove' | 'insert'
  * @param {number}      romSize       Target ROM size in bytes (256K or 512K)
  * @param {number}      base          ROM base address (e.g. 0xF80000)
+ * @param {Uint8Array}  [footerMeta]  Original ROM's footer metadata (last 16 bytes)
  * @returns {{ rom: Uint8Array, layout: object[], warnings: string[] }}
  */
-export function assembleRom(prolog, modules, romSize, base) {
+export function assembleRom(prolog, modules, romSize, base, footerMeta) {
   const warnings = []
   const layout   = []
   let cursor     = prolog.length
@@ -31,6 +32,15 @@ export function assembleRom(prolog, modules, romSize, base) {
   const kept = modules.filter(m => m.action !== 'remove')
 
   for (const mod of kept) {
+    // Preserve inter-module gap data from original ROM.
+    // These gaps contain strings, data tables, and other data referenced
+    // by modules via pointers (e.g. rt_Name, rt_IdString).
+    let preGapOffset = null
+    if (mod.preGap && mod.preGap.length > 0 && !mod.inserted) {
+      preGapOffset = cursor
+      cursor += mod.preGap.length
+    }
+
     cursor = alignUp(cursor, ALIGN)
     const newAddress = base + cursor
 
@@ -60,7 +70,10 @@ export function assembleRom(prolog, modules, romSize, base) {
     // Patch RomTag header pointers (skip for raw inserted binaries)
     let patched = data
     if (delta !== 0 && !mod.inserted) {
-      patched = patchRomTag(data, delta, origAddress, mod.endSkip)
+      // Owned range includes preGap – pointers to gap data (strings, etc.)
+      // must also be adjusted since the gap moves with the module
+      const gapSize = mod.preGap ? mod.preGap.length : 0
+      patched = patchRomTag(data, delta, origAddress - gapSize, mod.endSkip)
     }
 
     layout.push({
@@ -72,6 +85,8 @@ export function assembleRom(prolog, modules, romSize, base) {
       size:        patched.length,
       data:        patched,
       inserted:    !!mod.inserted,
+      preGapOffset,
+      preGapData:  mod.preGap || null,
     })
 
     cursor += patched.length
@@ -124,10 +139,18 @@ export function assembleRom(prolog, modules, romSize, base) {
   rom.set(prologPatched, 0)
 
   for (const entry of layout) {
+    // Write inter-module gap data first (preserves strings, tables, etc.)
+    if (entry.preGapData && entry.preGapData.length > 0 && entry.preGapOffset != null) {
+      rom.set(entry.preGapData, entry.preGapOffset)
+    }
     rom.set(entry.data, entry.newOffset)
   }
 
   // --- Write ROM footer fields ----------------------------------------
+  // Preserve original footer metadata (last 16 bytes: chip timing/config data)
+  if (footerMeta && footerMeta.length > 0) {
+    rom.set(footerMeta, romSize - footerMeta.length)
+  }
   const romView = new DataView(rom.buffer, rom.byteOffset, rom.byteLength)
   // ROM size field at -20 bytes from end
   romView.setUint32(romSize - 20, romSize, false)
