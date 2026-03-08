@@ -29,6 +29,24 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
   const over256     = estimatedSize > SIZE_256K && !over512
   const oversizeRom = estimatedSize > rom.size
 
+  // ── Free space estimate (pre-assembly) ──────────────────────────
+  // Sum of gaps from removed modules + trailing space after last kept module
+  const removedGapSpace = modules
+    .filter(m => m.action === 'remove' && !m.inserted)
+    .reduce((sum, m) => {
+      const gapEnd = Math.min(m.endSkip - rom.base, rom.size - 24)
+      return sum + Math.max(0, gapEnd - m.offset)
+    }, 0)
+
+  const hwMark = modules
+    .filter(m => m.action !== 'remove' && !m.inserted)
+    .reduce((max, m) => Math.max(max, Math.min(m.endSkip - rom.base, rom.size - 24)), rom.prolog.length)
+
+  const trailingSpace  = Math.max(0, rom.size - 24 - hwMark)
+  const totalFree      = removedGapSpace + trailingSpace
+  const insertPending  = inserted.reduce((sum, m) => sum + m.data.length, 0)
+  const freeRemaining  = Math.max(0, totalFree - insertPending)
+
   return (
     <div style={s.card}>
       <div style={s.title}>{'\u25C8'} ASSEMBLER</div>
@@ -42,6 +60,16 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
           <span style={{ ...s.sv, color: over512 || oversizeRom ? theme.colors.error : over256 ? theme.colors.warning : theme.colors.success }}>
             {kb(estimatedSize)} / {kb(rom.size)} ({pct}%)
           </span>
+        </div>
+        <div style={s.stat}><span style={s.sk}>Free space</span>
+          <span style={{ ...s.sv, color: freeRemaining <= 0 ? theme.colors.error : freeRemaining < 4096 ? theme.colors.warning : theme.colors.success }}>
+            {kb(freeRemaining)}
+          </span>
+          {removedGapSpace > 0 && (
+            <span style={s.freeDetail}>
+              ({kb(removedGapSpace)} gaps + {kb(trailingSpace)} trailing)
+            </span>
+          )}
         </div>
       </div>
 
@@ -76,7 +104,8 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
                 <tr key={i} style={{ ...s.row, ...(entry.inserted ? s.rowInserted : {}) }}>
                   <td style={s.tdName}>
                     {entry.name}
-                    {entry.inserted && <span style={s.insertBadge}> [INSERTED]</span>}
+                    {entry.inserted && entry.gapFilled && <span style={s.gapBadge}> [GAP-FILLED]</span>}
+                    {entry.inserted && !entry.gapFilled && <span style={s.insertBadge}> [APPENDED]</span>}
                   </td>
                   <td style={s.tdMono}>{hex(entry.newOffset)}</td>
                   <td style={s.tdMono}>{hex(entry.newAddress)}</td>
@@ -88,6 +117,15 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
               ))}
             </tbody>
           </table>
+
+          {assemblyResult.freeSpace && (
+            <div style={s.freeReport}>
+              Free after assembly: {kb(assemblyResult.freeSpace.total)}
+              {assemblyResult.freeSpace.gaps.length > 0 && (
+                <span> ({assemblyResult.freeSpace.gaps.length} gap{assemblyResult.freeSpace.gaps.length !== 1 ? 's' : ''}: {kb(assemblyResult.freeSpace.gaps.reduce((s, g) => s + g.size, 0))} + {kb(assemblyResult.freeSpace.trailing)} trailing)</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -113,6 +151,7 @@ function getStyles(t) {
     stat:         { display: 'flex', flexDirection: 'column', gap: 2 },
     sk:           { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.textDim, letterSpacing: 1 },
     sv:           { fontFamily: t.fonts.mono, fontSize: 16, color: t.colors.textPrimary },
+    freeDetail:   { fontFamily: t.fonts.mono, fontSize: 9, color: t.colors.textDim, marginTop: 2 },
     overflow:     { color: t.colors.error, fontFamily: t.fonts.mono, fontSize: 12, marginBottom: 12, background: t.colors.errorBg, border: `1px solid ${t.colors.errorBorder}`, borderRadius: t.borders.radius, padding: 8 },
     warn256:      { color: t.colors.warning, fontFamily: t.fonts.mono, fontSize: 12, marginBottom: 12, background: t.colors.warningBg, border: `1px solid ${t.colors.warningBorder}`, borderRadius: t.borders.radius, padding: 8 },
     layout:       { marginBottom: 16, overflowX: 'auto' },
@@ -121,9 +160,11 @@ function getStyles(t) {
     th:           { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.textDim, padding: '4px 10px', textAlign: 'left', borderBottom: `1px solid ${t.colors.borderSecondary}`, letterSpacing: 1 },
     row:          { borderBottom: `1px solid ${t.colors.borderRow}` },
     rowInserted:  { background: t.colors.rowInsertedBg },
+    gapBadge:     { color: t.colors.success, fontSize: 10, fontFamily: t.fonts.mono },
     insertBadge:  { color: t.colors.insertLabel, fontSize: 10, fontFamily: t.fonts.mono },
     tdName:       { fontFamily: t.fonts.body, fontSize: 12, color: t.colors.textPrimary, padding: '5px 10px' },
     tdMono:       { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.textSecondary, padding: '5px 10px' },
+    freeReport:   { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.textDim, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.colors.borderSecondary}` },
     error:        { color: t.colors.error, fontFamily: t.fonts.mono, fontSize: 12, marginBottom: 12 },
     buildBtn:     { width: '100%', padding: 14, fontFamily: t.fonts.display, fontSize: 13, letterSpacing: isWb ? 1 : 3, background: t.colors.btnPrimaryBg, color: t.colors.btnPrimaryText, borderRadius: t.borders.radius, cursor: 'pointer', fontWeight: 700, ...beveledBox(t) },
     buildDisabled:{ opacity: 0.4, cursor: 'not-allowed' },
