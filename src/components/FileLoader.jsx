@@ -31,34 +31,27 @@ export function FileLoader({ onLoad, error }) {
 
   return (
     <div style={s.wrapper}>
+      {/* Full-page Kickstart boot screen background (WB themes only) */}
+      {theme.special.showKickstartHand && (
+        <KickstartHand
+          themeName={theme.name}
+          width={theme.name === 'wb3' ? 960 : 450}
+          height={theme.name === 'wb3' ? 768 : 600}
+          style={s.bgImage}
+        />
+      )}
+
       {/* Theme toggle in top-right corner */}
       <button style={s.themeBtn} onClick={cycleTheme} title="Switch theme">
         {themeLabels[themeName]}
       </button>
 
-      <div style={s.logo}>AMIGA ROM TOOLKIT</div>
-      <div style={s.sub}>Analyse · Patch · Validate · Export</div>
-
-      <div style={{ position: 'relative' }}>
-        {/* Kickstart background (Workbench themes only) */}
-        {theme.special.showKickstartHand && (
-          <KickstartHand
-            themeName={theme.name}
-            width={theme.name === 'wb3' ? 480 : 300}
-            height={theme.name === 'wb3' ? 384 : 400}
-            style={{
-              position: 'absolute',
-              right: theme.name === 'wb3' ? -60 : -20,
-              bottom: theme.name === 'wb3' ? -80 : -60,
-              opacity: 0.15,
-              pointerEvents: 'none',
-              zIndex: 0,
-            }}
-          />
-        )}
+      <div style={s.content}>
+        <div style={s.logo}>AMIGA ROM TOOLKIT</div>
+        <div style={s.sub}>Analyse · Patch · Validate · Export</div>
 
         <div
-          style={{ ...s.dropzone, ...(dragging ? s.dropzoneDrag : {}), position: 'relative', zIndex: 1 }}
+          style={{ ...s.dropzone, ...(dragging ? s.dropzoneDrag : {}) }}
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
@@ -69,12 +62,12 @@ export function FileLoader({ onLoad, error }) {
           <div style={s.dropSub}>or click to browse · any binary · 256 KB or 512 KB</div>
           <input id="rom-file-input" type="file" style={s.hidden} onChange={onInputChange} />
         </div>
-      </div>
 
-      {error && <div style={s.error}>{error}</div>}
+        {error && <div style={s.error}>{error}</div>}
 
-      <div style={s.hint}>
-        Supports Kickstart 1.x · 2.x · 3.x · 3.2 ROM images
+        <div style={s.hint}>
+          Supports Kickstart 1.x · 2.x · 3.x · 3.2 ROM images
+        </div>
       </div>
     </div>
   )
@@ -82,20 +75,48 @@ export function FileLoader({ onLoad, error }) {
 
 function getStyles(t) {
   const isWb = t.name !== 'cyber'
+  // Boot screen background colors: white for 1.3, dark purple for 2.0+
+  const bootBg = t.name === 'wb1' ? '#FFFFFF' : t.name === 'wb3' ? '#440055' : undefined
   return {
-    wrapper:      { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: 24, padding: 32 },
-    logo:         { fontFamily: t.fonts.display, fontSize: isWb ? 28 : 42, fontWeight: 900, color: t.colors.accent, letterSpacing: isWb ? 2 : 8, textShadow: t.special.textShadow },
-    sub:          { fontFamily: t.fonts.mono, color: t.colors.textSecondary, fontSize: 13, letterSpacing: isWb ? 1 : 4 },
-    dropzone:     { ...beveledBox(t), borderRadius: t.borders.radius, padding: isWb ? '48px 64px' : '64px 96px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, cursor: 'pointer', transition: 'all 0.2s', background: t.colors.inputBg, ...(isWb ? {} : { border: `2px dashed ${t.colors.textVeryDim}` }) },
+    wrapper:      { position: 'relative', minHeight: '100vh', overflow: 'hidden',
+                    background: bootBg || 'transparent' },
+    bgImage:      { position: 'absolute', top: '50%', left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    opacity: 0.35, pointerEvents: 'none', zIndex: 0,
+                    maxWidth: '90vw', maxHeight: '90vh' },
+    content:      { position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', justifyContent: 'center', minHeight: '100vh',
+                    gap: 24, padding: 32 },
+    logo:         { fontFamily: t.fonts.display, fontSize: isWb ? 28 : 42, fontWeight: 900,
+                    color: isWb ? (t.name === 'wb1' ? '#222222' : '#FFFFFF') : t.colors.accent,
+                    letterSpacing: isWb ? 2 : 8, textShadow: t.special.textShadow },
+    sub:          { fontFamily: t.fonts.mono,
+                    color: isWb ? (t.name === 'wb1' ? '#444444' : '#CCCCCC') : t.colors.textSecondary,
+                    fontSize: 13, letterSpacing: isWb ? 1 : 4 },
+    dropzone:     { ...beveledBox(t), borderRadius: t.borders.radius,
+                    padding: isWb ? '48px 64px' : '64px 96px',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+                    cursor: 'pointer', transition: 'all 0.2s',
+                    background: isWb ? (t.name === 'wb1' ? '#0055AA' : '#888888') : t.colors.inputBg,
+                    ...(isWb ? {} : { border: `2px dashed ${t.colors.textVeryDim}` }) },
     dropzoneDrag: isWb
       ? { background: t.colors.highlightBg }
       : { border: `2px dashed ${t.colors.accent}`, background: t.colors.highlightBg, boxShadow: `0 0 30px ${t.colors.accentDim}` },
-    dropIcon:     { fontSize: isWb ? 48 : 56, color: t.colors.accent, lineHeight: 1 },
-    dropText:     { fontFamily: t.fonts.display, fontSize: isWb ? 14 : 16, color: t.colors.textPrimary, letterSpacing: isWb ? 1 : 4 },
-    dropSub:      { fontFamily: t.fonts.mono, fontSize: 12, color: t.colors.textDim },
+    dropIcon:     { fontSize: isWb ? 48 : 56, color: isWb ? '#FFFFFF' : t.colors.accent, lineHeight: 1 },
+    dropText:     { fontFamily: t.fonts.display, fontSize: isWb ? 14 : 16,
+                    color: '#FFFFFF', letterSpacing: isWb ? 1 : 4 },
+    dropSub:      { fontFamily: t.fonts.mono, fontSize: 12,
+                    color: isWb ? '#CCCCCC' : t.colors.textDim },
     hidden:       { display: 'none' },
-    error:        { color: t.colors.error, fontFamily: t.fonts.mono, fontSize: 13, background: t.colors.errorBg, border: `1px solid ${t.colors.error}`, borderRadius: t.borders.radius, padding: '8px 16px' },
-    hint:         { fontFamily: t.fonts.mono, color: t.colors.textVeryDim, fontSize: 11, letterSpacing: isWb ? 0 : 2 },
-    themeBtn:     { position: 'fixed', top: 12, right: 12, fontFamily: t.fonts.mono, fontSize: 10, background: isWb ? t.colors.accent : 'none', color: isWb ? t.colors.cardBgDeep : t.colors.textSecondary, padding: '4px 10px', cursor: 'pointer', letterSpacing: 1, borderRadius: t.borders.radius, ...beveledBox(t), fontWeight: 700, zIndex: 200 },
+    error:        { color: t.colors.error, fontFamily: t.fonts.mono, fontSize: 13,
+                    background: t.colors.errorBg, border: `1px solid ${t.colors.error}`,
+                    borderRadius: t.borders.radius, padding: '8px 16px' },
+    hint:         { fontFamily: t.fonts.mono, fontSize: 11, letterSpacing: isWb ? 0 : 2,
+                    color: isWb ? (t.name === 'wb1' ? '#666666' : '#AAAAAA') : t.colors.textVeryDim },
+    themeBtn:     { position: 'fixed', top: 12, right: 12, fontFamily: t.fonts.mono, fontSize: 10,
+                    background: isWb ? t.colors.accent : 'none',
+                    color: isWb ? '#000022' : t.colors.textSecondary,
+                    padding: '4px 10px', cursor: 'pointer', letterSpacing: 1,
+                    borderRadius: t.borders.radius, ...beveledBox(t), fontWeight: 700, zIndex: 200 },
   }
 }
