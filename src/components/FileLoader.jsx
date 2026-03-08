@@ -40,15 +40,16 @@ export function FileLoader({ onLoad, error }) {
       <div style={s.sub}>Analyse · Patch · Validate · Export</div>
 
       <div style={{ position: 'relative' }}>
-        {/* Kickstart hand background (Workbench themes only) */}
+        {/* Kickstart background (Workbench themes only) */}
         {theme.special.showKickstartHand && (
           <KickstartHand
-            width={320}
-            height={260}
+            themeName={theme.name}
+            width={theme.name === 'wb3' ? 480 : 300}
+            height={theme.name === 'wb3' ? 384 : 400}
             style={{
               position: 'absolute',
-              right: -40,
-              bottom: -40,
+              right: theme.name === 'wb3' ? -60 : -20,
+              bottom: theme.name === 'wb3' ? -80 : -60,
               opacity: 0.15,
               pointerEvents: 'none',
               zIndex: 0,
