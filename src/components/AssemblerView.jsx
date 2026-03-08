@@ -3,6 +3,7 @@
 import React from 'react'
 import { useTheme }   from '../theme/ThemeContext.jsx'
 import { beveledBox } from '../theme/workbenchPatterns.js'
+import { describeModulePlacement } from '../engine/ResidentAnalyzer.js'
 
 function hex(n) { return '0x' + (n >>> 0).toString(16).toUpperCase().padStart(8, '0') }
 function kb(n)  { return n >= 1024 ? `${(n/1024).toFixed(1)} KB` : `${n} B` }
@@ -20,6 +21,13 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
   const removed  = modules.filter(m => m.action === 'remove')
   const replaced = modules.filter(m => m.action === 'replace')
   const inserted = modules.filter(m => m.inserted)
+  const placementIssues = modules
+    .filter(m => m.action !== 'remove')
+    .map(m => ({ mod: m, placement: describeModulePlacement(m) }))
+  const execInvisible = placementIssues.filter(({ placement, mod }) =>
+    placement.execLabel !== 'YES' && (mod.inserted || mod.action === 'replace')
+  )
+  const limitedMove = placementIssues.filter(({ placement }) => placement.moveLabel === 'LIMITED')
 
   const estimatedSize = rom.prolog.length +
     kept.reduce((acc, m) => acc + (m.padTo ?? (m.replacement ? m.replacement.length : m.size)), 0)
@@ -91,6 +99,18 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
         </div>
       )}
 
+      {execInvisible.length > 0 && (
+        <div style={s.overflow}>
+          {'\u2718'} {execInvisible.length} inserted/replacement module{execInvisible.length !== 1 ? 's' : ''} are not self-contained Residents, so exec will not discover them after assembly.
+        </div>
+      )}
+
+      {limitedMove.length > 0 && (
+        <div style={s.warn256}>
+          {'\u26A0'} {limitedMove.length} module{limitedMove.length !== 1 ? 's are' : ' is'} only RomTag-relocatable. They are visible to exec, but not proven safe for arbitrary movement.
+        </div>
+      )}
+
       {assemblyResult && (
         <div style={s.layout}>
           <div style={s.layoutTitle}>LAST ASSEMBLY LAYOUT</div>
@@ -132,9 +152,9 @@ export function AssemblerView({ rom, modules, assemblyResult, onAssemble, error 
       {error && <div style={s.error}>{error}</div>}
 
       <button
-        style={{ ...s.buildBtn, ...((oversizeRom || over512) ? s.buildDisabled : {}) }}
-        onClick={(oversizeRom || over512) ? undefined : onAssemble}
-        disabled={oversizeRom || over512}
+        style={{ ...s.buildBtn, ...((oversizeRom || over512 || execInvisible.length > 0) ? s.buildDisabled : {}) }}
+        onClick={(oversizeRom || over512 || execInvisible.length > 0) ? undefined : onAssemble}
+        disabled={oversizeRom || over512 || execInvisible.length > 0}
       >
         {'\u25C8'} ASSEMBLE ROM
       </button>

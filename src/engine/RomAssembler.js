@@ -10,6 +10,7 @@
 // fit a gap are appended after the last resident module.
 
 import { patchRomTag, fixChecksum, padToSize } from './RomPatcher.js'
+import { analyzeResidentBinary } from './ResidentAnalyzer.js'
 
 const ALIGN     = 2   // 68000 requires word (2-byte) alignment
 const SIZE_256K = 262144
@@ -18,6 +19,62 @@ const SIZE_512K = 524288
 function alignUp(n, align) {
   const r = n % align
   return r === 0 ? n : n + align - r
+}
+
+function mergeSegments(segments) {
+  if (segments.length === 0) return []
+
+  const sorted = segments
+    .filter(s => s.size > 0)
+    .sort((a, b) => a.offset - b.offset)
+
+  if (sorted.length === 0) return []
+
+  const merged = [{ ...sorted[0] }]
+
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = sorted[i]
+    const prev = merged[merged.length - 1]
+    const prevEnd = prev.offset + prev.size
+    const currentEnd = current.offset + current.size
+
+    if (current.offset <= prevEnd) {
+      prev.size = Math.max(prevEnd, currentEnd) - prev.offset
+      continue
+    }
+
+    merged.push({ ...current })
+  }
+
+  return merged
+}
+
+function buildFreeSpaceReport(gaps, totalUsed, romSize) {
+  const payloadLimit = romSize - 24
+  const tailStart = alignUp(totalUsed, ALIGN)
+  const freeSegments = gaps.map(g => ({ offset: g.offset, size: g.size }))
+
+  if (tailStart < payloadLimit) {
+    freeSegments.push({ offset: tailStart, size: payloadLimit - tailStart })
+  }
+
+  const merged = mergeSegments(freeSegments)
+
+  if (merged.length === 0) {
+    return { gaps: [], trailing: 0, total: 0 }
+  }
+
+  const last = merged[merged.length - 1]
+  const lastEnd = last.offset + last.size
+  const trailing = lastEnd === payloadLimit ? last.size : 0
+  const gapsOnly = trailing > 0 ? merged.slice(0, -1) : merged
+  const gapTotal = gapsOnly.reduce((sum, g) => sum + g.size, 0)
+
+  return {
+    gaps: gapsOnly,
+    trailing,
+    total: gapTotal + trailing,
+  }
 }
 
 /**
@@ -59,8 +116,8 @@ function patchModuleRomTag(data, targetAddress, warnings, modName) {
  * Uses an IN-PLACE strategy: kept/replaced modules stay at their original
  * ROM offsets so that absolute 68000 pointers inside module code remain
  * valid.  Removed modules are zeroed out, creating gaps.  Inserted modules
- * first try to fill those gaps (best-fit); overflow is appended after the
- * last resident module.
+ * first try to fill those gaps while preserving insert order by ROM address;
+ * overflow is appended after the last resident module.
  *
  * @param {Uint8Array}  prolog        Bytes before the first RomTag
  * @param {object[]}    modules       Ordered module descriptors
@@ -74,6 +131,36 @@ function patchModuleRomTag(data, targetAddress, warnings, modName) {
 export function assembleRom(prolog, modules, romSize, base, originalRom) {
   const warnings = []
   const layout   = []
+
+  for (const mod of modules) {
+    if (mod.action === 'remove') continue
+
+    if (mod.inserted) {
+      const info = mod.residentInfo ?? analyzeResidentBinary(mod.data, mod.name)
+      if (!info.execVisible) {
+        throw new Error(
+          `Cannot insert "${mod.name}": exec will not discover this binary. ${info.execReason}`
+        )
+      }
+      warnings.push(
+        `Module "${mod.name}": ${info.execReason} Move safety: ${info.moveReason}`
+      )
+      continue
+    }
+
+    if (mod.action === 'replace' && mod.replacement) {
+      const info = mod.replacementInfo ?? analyzeResidentBinary(mod.replacement, mod.replacementFilename ?? mod.name)
+      if (!info.execVisible) {
+        throw new Error(
+          `Cannot replace "${mod.name}" with "${mod.replacementFilename ?? mod.name}": ` +
+          `replacement is not a self-contained resident. ${info.execReason}`
+        )
+      }
+      warnings.push(
+        `Replacement "${mod.replacementFilename ?? mod.name}": ${info.execReason} Move safety: ${info.moveReason}`
+      )
+    }
+  }
 
   const kept = modules.filter(m => m.action !== 'remove')
   const anyChanges = kept.some(m => m.action !== 'keep' || m.inserted) ||
@@ -197,21 +284,22 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
     })
   }
 
-  // ── Phase 2: Place inserted modules (gap-fill first, then append) ─
+  // ── Phase 2: Place inserted modules (stable gap-fill first, then append) ─
   const inserts = modules.filter(m => m.inserted)
 
   if (inserts.length > 0) {
-    // Sort gaps by size ascending for best-fit allocation
-    // (smallest sufficient gap → least wasted space)
-    gaps.sort((a, b) => a.size - b.size)
+    // Keep gaps in ROM order so later inserts never land before earlier ones.
+    gaps.sort((a, b) => a.offset - b.offset)
 
     let tailCursor = highWater
+    let minInsertOffset = 0
 
     for (const mod of inserts) {
       const alignedLen = alignUp(mod.data.length, ALIGN)
 
-      // Try best-fit: find the smallest gap that can hold this module
-      const gapIdx = gaps.findIndex(g => g.size >= alignedLen)
+      // Preserve resident order by only considering free space at or after
+      // the previous inserted module's placement.
+      const gapIdx = gaps.findIndex(g => g.offset >= minInsertOffset && g.size >= alignedLen)
 
       let cursor, newAddress, gapFilled
 
@@ -232,7 +320,7 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
         }
       } else {
         // ── Append after the last resident module ──
-        cursor     = alignUp(tailCursor, ALIGN)
+        cursor     = alignUp(Math.max(tailCursor, minInsertOffset), ALIGN)
         newAddress = base + cursor
         gapFilled  = false
         tailCursor = cursor + mod.data.length
@@ -266,6 +354,8 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
         inserted:        true,
         gapFilled,
       })
+
+      minInsertOffset = cursor
 
       const where = gapFilled
         ? `gap at offset 0x${cursor.toString(16)}`
@@ -306,13 +396,7 @@ export function assembleRom(prolog, modules, romSize, base, originalRom) {
   const romWithChecksum = fixChecksum(rom)
 
   // ── Free space report ─────────────────────────────────────────────
-  const remainingGapSpace = gaps.reduce((sum, g) => sum + g.size, 0)
-  const trailing = Math.max(0, romSize - 24 - totalUsed)
-  const freeSpace = {
-    gaps: gaps.map(g => ({ offset: g.offset, size: g.size })),
-    trailing,
-    total: remainingGapSpace + trailing,
-  }
+  const freeSpace = buildFreeSpaceReport(gaps, totalUsed, romSize)
 
   return { rom: romWithChecksum, layout, warnings, freeSpace }
 }

@@ -5,6 +5,7 @@ import { parseRom, byteSwap } from '../engine/RomParser.js'
 import { scanRomTags, buildComponentMap } from '../engine/RomTagScanner.js'
 import { assembleRom }    from '../engine/RomAssembler.js'
 import { validateRom }    from '../engine/RomValidator.js'
+import { analyzeResidentBinary } from '../engine/ResidentAnalyzer.js'
 
 const SIZE_256K = 262144
 const SIZE_512K = 524288
@@ -48,6 +49,9 @@ export function useRomToolkit() {
           ...tag,
           preGap,
           replacement: null,
+          replacementFilename: null,
+          residentInfo: analyzeResidentBinary(tag.data, tag.name),
+          replacementInfo: null,
           padTo:       null,
           action:      'keep',
           filename:    filename,
@@ -76,12 +80,14 @@ export function useRomToolkit() {
 
   const setModuleReplacement = useCallback((index, arrayBuffer, filename, padToOriginal) => {
     const replacement = new Uint8Array(arrayBuffer)
+    const replacementInfo = analyzeResidentBinary(replacement, filename)
     setModules(prev => prev.map((m, i) => {
       if (i !== index) return m
       return {
         ...m,
         replacement,
         replacementFilename: filename,
+        replacementInfo,
         padTo: padToOriginal ? m.size : null,
         action: 'replace',
       }
@@ -91,7 +97,14 @@ export function useRomToolkit() {
 
   const clearModuleReplacement = useCallback((index) => {
     setModules(prev => prev.map((m, i) =>
-      i === index ? { ...m, replacement: null, replacementFilename: null, padTo: null, action: 'keep' } : m
+      i === index ? {
+        ...m,
+        replacement: null,
+        replacementFilename: null,
+        replacementInfo: null,
+        padTo: null,
+        action: 'keep',
+      } : m
     ))
     setAssemblyResult(null)
   }, [])
@@ -106,6 +119,7 @@ export function useRomToolkit() {
   // ── Insert module ─────────────────────────────────────────────────
   const insertModule = useCallback((afterIndex, arrayBuffer, filename) => {
     const data = new Uint8Array(arrayBuffer)
+    const residentInfo = analyzeResidentBinary(data, filename)
     if (data.length + rom.prolog.length + modules.reduce((s, m) =>
       s + (m.action !== 'remove' ? (m.padTo ?? (m.replacement ? m.replacement.length : m.size)) : 0), 0) > SIZE_512K) {
       setError('Cannot insert: total payload would exceed 512 KB hard limit.')
@@ -128,6 +142,8 @@ export function useRomToolkit() {
       idPtr:       0,
       initPtr:     0,
       data,
+      residentInfo,
+      replacementInfo: null,
       replacement: null,
       padTo:       null,
       action:      'insert',

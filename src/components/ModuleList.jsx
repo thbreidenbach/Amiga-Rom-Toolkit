@@ -3,6 +3,7 @@
 import React, { useRef } from 'react'
 import { useTheme }   from '../theme/ThemeContext.jsx'
 import { beveledBox, wbButton } from '../theme/workbenchPatterns.js'
+import { describeModulePlacement } from '../engine/ResidentAnalyzer.js'
 
 function hex(n) { return '0x' + (n >>> 0).toString(16).toUpperCase().padStart(8, '0') }
 function kb(n)  { return n >= 1024 ? `${(n/1024).toFixed(1)} KB` : `${n} B` }
@@ -41,14 +42,16 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
         <table style={s.table}>
           <thead>
             <tr>
-              {['Module Name','Version','Size','Address','Priority','Type','Action'].map(h => (
+              {['Module Name','Version','Size','Address','Priority','Type','Exec','Move','Action'].map(h => (
                 <th key={h} style={s.th}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {modules.map((mod, i) => (
-              <tr key={i} style={{
+            {modules.map((mod, i) => {
+              const placement = describeModulePlacement(mod)
+              return (
+              <tr key={i} title={`${placement.execReason}\n${placement.moveReason}`} style={{
                 ...s.row,
                 ...(mod.action === 'remove' ? s.rowRemoved :
                     mod.action === 'replace' ? s.rowReplaced :
@@ -62,12 +65,31 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
                   {mod.inserted && (
                     <div style={s.insertLabel}>+ INSERTED</div>
                   )}
+                  <div style={s.moveDetail}>{placement.execReason}</div>
+                  <div style={s.moveDetail}>{placement.moveReason}</div>
                 </td>
                 <td style={s.td}>{mod.inserted ? '\u2013' : mod.version}</td>
                 <td style={s.td}>{kb(mod.size)}</td>
                 <td style={s.tdMono}>{mod.inserted ? '(new)' : hex(mod.address)}</td>
                 <td style={s.td}>{mod.inserted ? '\u2013' : mod.priority}</td>
                 <td style={s.tdMono}>{mod.nodeTypeDesc}</td>
+                <td style={s.tdStatus}>
+                  <span style={{
+                    ...s.statusBadge,
+                    ...(placement.execLabel === 'YES' ? s.statusOk : s.statusBad),
+                  }}>
+                    {placement.execLabel}
+                  </span>
+                </td>
+                <td style={s.tdStatus}>
+                  <span style={{
+                    ...s.statusBadge,
+                    ...(placement.moveVerdict === 'pinned' ? s.statusPinned :
+                        placement.moveLabel === 'LIMITED' ? s.statusWarn : s.statusBad),
+                  }}>
+                    {placement.moveLabel}
+                  </span>
+                </td>
                 <td style={s.tdAction}>
                   {mod.inserted ? (
                     <button style={s.btnRemove} onClick={() => onRemoveInserted(i)}>REMOVE</button>
@@ -119,7 +141,8 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
                   />
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -145,9 +168,16 @@ function getStyles(t) {
     td:          { fontFamily: t.fonts.mono, fontSize: 12, color: t.colors.textSecondary, padding: '6px 12px' },
     tdMono:      { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.textSecondary, padding: '6px 12px' },
     tdName:      { fontFamily: t.fonts.body, fontSize: 13, color: t.colors.textPrimary, padding: '6px 12px', fontWeight: 600 },
+    tdStatus:    { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.textSecondary, padding: '6px 12px', verticalAlign: 'top' },
     tdAction:    { padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' },
     replLabel:   { fontSize: 10, color: t.colors.replLabel, fontFamily: t.fonts.mono, marginTop: 2 },
     insertLabel: { fontSize: 10, color: t.colors.insertLabel, fontFamily: t.fonts.mono, marginTop: 2 },
+    moveDetail:  { fontSize: 10, color: t.colors.textDim, fontFamily: t.fonts.mono, marginTop: 2, fontWeight: 400, maxWidth: 280 },
+    statusBadge: { display: 'inline-block', minWidth: 62, textAlign: 'center', padding: '2px 6px', borderRadius: t.borders.radius, border: `1px solid ${t.colors.borderSecondary}` },
+    statusOk:    { color: t.colors.success, borderColor: t.colors.success, background: t.colors.successBg ?? 'transparent' },
+    statusWarn:  { color: t.colors.warning, borderColor: t.colors.warning, background: t.colors.warningBg },
+    statusBad:   { color: t.colors.error, borderColor: t.colors.errorBorder, background: t.colors.errorBg },
+    statusPinned:{ color: t.colors.textSecondary, borderColor: t.colors.textVeryDim, background: t.colors.inputBg },
     btnSave:     wbButton(t, t.colors.btnSaveBg, t.colors.btnSaveBorder, t.colors.btnSaveText),
     btnSaveAll:  wbButton(t, t.colors.btnSaveBg, t.colors.btnSaveBorder, t.colors.btnSaveText),
     btnReplace:  wbButton(t, t.colors.btnReplaceBg, t.colors.btnReplaceBorder, t.colors.btnReplaceText),
