@@ -2,6 +2,9 @@
 
 import React from 'react'
 import { useRomToolkit }   from './hooks/useRomToolkit.js'
+import { useTheme }        from './theme/ThemeContext.jsx'
+import { themeLabels }     from './theme/themes.js'
+import { beveledBox }      from './theme/workbenchPatterns.js'
 import { FileLoader }      from './components/FileLoader.jsx'
 import { RomOverview }     from './components/RomOverview.jsx'
 import { ModuleList }      from './components/ModuleList.jsx'
@@ -12,37 +15,41 @@ const STEPS = ['LOAD', 'ANALYSE', 'ASSEMBLE', 'VALIDATE']
 
 export default function App() {
   const tk = useRomToolkit()
+  const { theme, themeName, cycleTheme } = useTheme()
+  const s = getStyles(theme)
 
   if (!tk.rom) {
     return <FileLoader onLoad={tk.loadRom} error={tk.error} />
   }
 
   return (
-    <div style={styles.app}>
+    <div style={s.app}>
       {/* Header */}
-      <header style={styles.header}>
-        <div style={styles.logo}>AMIGA ROM TOOLKIT <span style={styles.ver}>v2</span></div>
-        <div style={styles.nav}>
-          {STEPS.map((s, i) => (
+      <header style={s.header}>
+        <div style={s.logo}>AMIGA ROM TOOLKIT <span style={s.ver}>v2</span></div>
+        <div style={s.nav}>
+          {STEPS.map((step, i) => (
             <button
-              key={s}
-              style={{ ...styles.navBtn, ...(tk.step === i ? styles.navActive : {}) }}
+              key={step}
+              style={{ ...s.navBtn, ...(tk.step === i ? s.navActive : {}) }}
               onClick={() => tk.setStep(i)}
             >
-              {i+1}. {s}
+              {i+1}. {step}
             </button>
           ))}
         </div>
-        <button style={styles.resetBtn} onClick={() => window.location.reload()}>NEW ROM</button>
+        <button style={s.themeBtn} onClick={cycleTheme} title="Switch theme">
+          {themeLabels[themeName]}
+        </button>
+        <button style={s.resetBtn} onClick={() => window.location.reload()}>NEW ROM</button>
       </header>
 
       {/* Content */}
-      <main style={styles.main}>
+      <main style={s.main}>
         {tk.error && (
-          <div style={styles.globalError}>&#x26A0; {tk.error}</div>
+          <div style={s.globalError}>&#x26A0; {tk.error}</div>
         )}
 
-        {/* Step 1: Analyse */}
         {tk.step >= 1 && (
           <>
             <RomOverview
@@ -58,7 +65,6 @@ export default function App() {
           </>
         )}
 
-        {/* Step 2: Module Editor */}
         {tk.step >= 1 && (
           <ModuleList
             modules={tk.modules}
@@ -73,7 +79,6 @@ export default function App() {
           />
         )}
 
-        {/* Step 3: Assembler */}
         {tk.step >= 1 && (
           <AssemblerView
             rom={tk.rom}
@@ -84,7 +89,6 @@ export default function App() {
           />
         )}
 
-        {/* Step 4: Assembled ROM Validator + Export */}
         {tk.assemblyResult && (
           <ValidatorPanel
             validationResult={tk.validationResult?.target === 'assembled' ? tk.validationResult : null}
@@ -98,15 +102,19 @@ export default function App() {
   )
 }
 
-const styles = {
-  app:         { minHeight: '100vh', background: '#0a0a0f' },
-  header:      { display: 'flex', alignItems: 'center', gap: 24, padding: '12px 32px', background: '#0d1218', borderBottom: '1px solid #1a2530', position: 'sticky', top: 0, zIndex: 100 },
-  logo:        { fontFamily: "'Orbitron', sans-serif", fontSize: 16, fontWeight: 900, color: '#ff6b00', letterSpacing: 4, flexShrink: 0 },
-  ver:         { fontSize: 10, color: '#334455', letterSpacing: 1, fontWeight: 400 },
-  nav:         { display: 'flex', gap: 4, flex: 1 },
-  navBtn:      { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, background: 'none', border: '1px solid #1a2530', color: '#445566', padding: '5px 14px', cursor: 'pointer', letterSpacing: 2 },
-  navActive:   { border: '1px solid #ff6b00', color: '#ff6b00', background: '#1a0d00' },
-  resetBtn:    { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, background: 'none', border: '1px solid #334455', color: '#6a8090', padding: '5px 14px', cursor: 'pointer', letterSpacing: 2 },
-  main:        { padding: '24px 32px', maxWidth: 1200, margin: '0 auto' },
-  globalError: { fontFamily: "'Share Tech Mono', monospace", fontSize: 12, color: '#ff4444', background: '#1a0808', border: '1px solid #ff333344', borderRadius: 3, padding: '10px 16px', marginBottom: 16 },
+function getStyles(t) {
+  const isWb = t.name !== 'cyber'
+  return {
+    app:         { minHeight: '100vh', background: t.colors.pageBg },
+    header:      { display: 'flex', alignItems: 'center', gap: isWb ? 8 : 24, padding: isWb ? '6px 16px' : '12px 32px', background: t.colors.headerBg, borderBottom: `1px solid ${t.colors.borderSecondary}`, position: 'sticky', top: 0, zIndex: 100, ...beveledBox(t) },
+    logo:        { fontFamily: t.fonts.display, fontSize: isWb ? 14 : 16, fontWeight: 900, color: t.colors.accent, letterSpacing: isWb ? 1 : 4, flexShrink: 0, textShadow: t.special.textShadow },
+    ver:         { fontSize: 10, color: t.colors.textVeryDim, letterSpacing: 1, fontWeight: 400 },
+    nav:         { display: 'flex', gap: 4, flex: 1 },
+    navBtn:      { fontFamily: t.fonts.mono, fontSize: 11, background: 'none', border: `1px solid ${t.colors.borderSecondary}`, color: t.colors.textDim, padding: '5px 14px', cursor: 'pointer', letterSpacing: isWb ? 0 : 2, borderRadius: t.borders.radius },
+    navActive:   { border: `1px solid ${t.colors.accent}`, color: t.colors.accent, background: isWb ? t.colors.accentBg : t.colors.accentBg },
+    themeBtn:    { fontFamily: t.fonts.mono, fontSize: 10, background: isWb ? t.colors.accent : 'none', color: isWb ? t.colors.cardBgDeep : t.colors.textSecondary, padding: '4px 10px', cursor: 'pointer', letterSpacing: 1, borderRadius: t.borders.radius, ...beveledBox(t), fontWeight: 700 },
+    resetBtn:    { fontFamily: t.fonts.mono, fontSize: 11, background: 'none', border: `1px solid ${t.colors.textVeryDim}`, color: t.colors.textSecondary, padding: '5px 14px', cursor: 'pointer', letterSpacing: isWb ? 0 : 2, borderRadius: t.borders.radius },
+    main:        { padding: isWb ? '12px 16px' : '24px 32px', maxWidth: 1200, margin: '0 auto' },
+    globalError: { fontFamily: t.fonts.mono, fontSize: 12, color: t.colors.error, background: t.colors.errorBg, border: `1px solid ${t.colors.errorBorder}`, borderRadius: t.borders.radius, padding: '10px 16px', marginBottom: 16 },
+  }
 }
