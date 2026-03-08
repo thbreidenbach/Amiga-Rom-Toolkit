@@ -7,12 +7,34 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet" />
     <style>
+      @font-face {
+        font-family: 'Topaz a500a1000a2000';
+        src: url('/fonts/Topaz_a500_v1.0.ttf') format('truetype');
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Topaz a600a1200a4000';
+        src: url('/fonts/Topaz_a1200_v1.0.ttf') format('truetype');
+        font-display: swap;
+      }
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #0a0a0f; color: #c8d8e8; font-family: 'Exo 2', sans-serif; }
-      ::-webkit-scrollbar { width: 6px; } 
+      ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-track { background: #111; }
       ::-webkit-scrollbar-thumb { background: #ff6b00; border-radius: 3px; }
+      /* Workbench 1.x overrides */
+      body.theme-wb1 { background: #0055AA; color: #FFFFFF; font-family: 'Topaz a500a1000a2000', monospace; }
+      body.theme-wb1 ::-webkit-scrollbar-track { background: #000022; }
+      body.theme-wb1 ::-webkit-scrollbar-thumb { background: #FF8800; border-radius: 0; }
+      /* Workbench 3.x overrides */
+      body.theme-wb3 { background: #AAAAAA; color: #000000; font-family: 'Topaz a600a1200a4000', monospace; }
+      body.theme-wb3 ::-webkit-scrollbar-track { background: #888888; }
+      body.theme-wb3 ::-webkit-scrollbar-thumb { background: #6688BB; border-radius: 0; }
     </style>
+    <!-- Prevent flash of wrong theme on load -->
+    <script>
+      (function(){var t=localStorage.getItem('art-theme');if(t==='wb1'||t==='wb3')document.body&&(document.body.className='theme-'+t)})()
+    </script>
   </head>
   <body>
     <div id="root"></div>

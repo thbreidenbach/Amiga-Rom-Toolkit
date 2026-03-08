@@ -1,12 +1,16 @@
 // ModuleList.jsx – Table of all RomTag modules with edit actions
 
 import React, { useRef } from 'react'
+import { useTheme }   from '../theme/ThemeContext.jsx'
+import { beveledBox, wbButton } from '../theme/workbenchPatterns.js'
 
 function hex(n) { return '0x' + (n >>> 0).toString(16).toUpperCase().padStart(8, '0') }
 function kb(n)  { return n >= 1024 ? `${(n/1024).toFixed(1)} KB` : `${n} B` }
 
 export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
                               onInsert, onRemoveInserted, onSaveModule, onSaveAll }) {
+  const { theme } = useTheme()
+  const s = getStyles(theme)
   const fileInputRefs  = useRef({})
   const insertInputRef = useRef({})
 
@@ -26,61 +30,61 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
   }
 
   return (
-    <div style={styles.card}>
-      <div style={styles.titleRow}>
-        <div style={styles.title}>◈ MODULE LIST  <span style={styles.count}>{modules.length} entries</span></div>
-        <div style={styles.titleActions}>
-          <button style={styles.btnSaveAll} onClick={onSaveAll}>SAVE ALL</button>
+    <div style={s.card}>
+      <div style={s.titleRow}>
+        <div style={s.title}>{'\u25C8'} MODULE LIST  <span style={s.count}>{modules.length} entries</span></div>
+        <div style={s.titleActions}>
+          <button style={s.btnSaveAll} onClick={onSaveAll}>SAVE ALL</button>
         </div>
       </div>
-      <div style={styles.scroll}>
-        <table style={styles.table}>
+      <div style={s.scroll}>
+        <table style={s.table}>
           <thead>
             <tr>
               {['Module Name','Version','Size','Address','Priority','Type','Action'].map(h => (
-                <th key={h} style={styles.th}>{h}</th>
+                <th key={h} style={s.th}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {modules.map((mod, i) => (
               <tr key={i} style={{
-                ...styles.row,
-                ...(mod.action === 'remove' ? styles.rowRemoved :
-                    mod.action === 'replace' ? styles.rowReplaced :
-                    mod.inserted ? styles.rowInserted : {})
+                ...s.row,
+                ...(mod.action === 'remove' ? s.rowRemoved :
+                    mod.action === 'replace' ? s.rowReplaced :
+                    mod.inserted ? s.rowInserted : {})
               }}>
-                <td style={styles.tdName}>
+                <td style={s.tdName}>
                   {mod.name}
                   {mod.replacementFilename && (
-                    <div style={styles.replLabel}>← {mod.replacementFilename}</div>
+                    <div style={s.replLabel}>{'\u2190'} {mod.replacementFilename}</div>
                   )}
                   {mod.inserted && (
-                    <div style={styles.insertLabel}>+ INSERTED</div>
+                    <div style={s.insertLabel}>+ INSERTED</div>
                   )}
                 </td>
-                <td style={styles.td}>{mod.inserted ? '–' : mod.version}</td>
-                <td style={styles.td}>{kb(mod.size)}</td>
-                <td style={styles.tdMono}>{mod.inserted ? '(new)' : hex(mod.address)}</td>
-                <td style={styles.td}>{mod.inserted ? '–' : mod.priority}</td>
-                <td style={styles.tdMono}>{mod.nodeTypeDesc}</td>
-                <td style={styles.tdAction}>
+                <td style={s.td}>{mod.inserted ? '\u2013' : mod.version}</td>
+                <td style={s.td}>{kb(mod.size)}</td>
+                <td style={s.tdMono}>{mod.inserted ? '(new)' : hex(mod.address)}</td>
+                <td style={s.td}>{mod.inserted ? '\u2013' : mod.priority}</td>
+                <td style={s.tdMono}>{mod.nodeTypeDesc}</td>
+                <td style={s.tdAction}>
                   {mod.inserted ? (
-                    <button style={styles.btnRemove} onClick={() => onRemoveInserted(i)}>REMOVE</button>
+                    <button style={s.btnRemove} onClick={() => onRemoveInserted(i)}>REMOVE</button>
                   ) : (
                     <>
                       {mod.action === 'keep' && (
                         <>
-                          <button style={styles.btnSave} onClick={() => onSaveModule(i)}>SAVE</button>
-                          <button style={styles.btnReplace}
+                          <button style={s.btnSave} onClick={() => onSaveModule(i)}>SAVE</button>
+                          <button style={s.btnReplace}
                             onClick={() => fileInputRefs.current[i]?.click()}>
                             REPLACE
                           </button>
-                          <button style={styles.btnInsert}
+                          <button style={s.btnInsert}
                             onClick={() => insertInputRef.current[i]?.click()}>
-                            INSERT
+                            INSERT AFTER
                           </button>
-                          <button style={styles.btnRemove}
+                          <button style={s.btnRemove}
                             onClick={() => onAction(i, 'remove')}>
                             REMOVE
                           </button>
@@ -88,16 +92,16 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
                       )}
                       {mod.action === 'replace' && (
                         <>
-                          <label style={styles.padLabel}>
+                          <label style={s.padLabel}>
                             <input type="checkbox" id={`pad-${i}`} defaultChecked
                               onChange={e => onPadToggle(i, e.target.checked ? mod.size : null)} />
                             &nbsp;pad to {kb(mod.size)}
                           </label>
-                          <button style={styles.btnClear} onClick={() => onClear(i)}>UNDO</button>
+                          <button style={s.btnClear} onClick={() => onClear(i)}>UNDO</button>
                         </>
                       )}
                       {mod.action === 'remove' && (
-                        <button style={styles.btnClear} onClick={() => onAction(i, 'keep')}>RESTORE</button>
+                        <button style={s.btnClear} onClick={() => onAction(i, 'keep')}>RESTORE</button>
                       )}
                     </>
                   )}
@@ -123,30 +127,33 @@ export function ModuleList({ modules, onAction, onReplace, onClear, onPadToggle,
   )
 }
 
-const styles = {
-  card:        { background: '#0d1218', border: '1px solid #223344', borderRadius: 4, padding: 20, marginBottom: 16 },
-  titleRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  title:       { fontFamily: "'Orbitron', sans-serif", fontSize: 12, color: '#ff6b00', letterSpacing: 3 },
-  titleActions:{ display: 'flex', gap: 6 },
-  count:       { color: '#445566', fontSize: 11 },
-  scroll:      { overflowX: 'auto' },
-  table:       { borderCollapse: 'collapse', width: '100%', minWidth: 800 },
-  th:          { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: '#445566', padding: '4px 12px', textAlign: 'left', borderBottom: '1px solid #1a2530', letterSpacing: 2 },
-  row:         { borderBottom: '1px solid #111a22' },
-  rowRemoved:  { opacity: 0.4 },
-  rowReplaced: { background: '#0d1a08' },
-  rowInserted: { background: '#0d0d1a' },
-  td:          { fontFamily: "'Share Tech Mono', monospace", fontSize: 12, color: '#8aaabb', padding: '6px 12px' },
-  tdMono:      { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#6a8090', padding: '6px 12px' },
-  tdName:      { fontFamily: "'Exo 2', sans-serif", fontSize: 13, color: '#c8d8e8', padding: '6px 12px', fontWeight: 600 },
-  tdAction:    { padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' },
-  replLabel:   { fontSize: 10, color: '#4a9', fontFamily: "'Share Tech Mono', monospace", marginTop: 2 },
-  insertLabel: { fontSize: 10, color: '#88aaff', fontFamily: "'Share Tech Mono', monospace", marginTop: 2 },
-  btnSave:     { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#0d1a1a', border: '1px solid #336666', color: '#88cccc', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  btnSaveAll:  { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#0d1a1a', border: '1px solid #336666', color: '#88cccc', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  btnReplace:  { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#0d1f2d', border: '1px solid #335577', color: '#88bbcc', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  btnInsert:   { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#0d0d2d', border: '1px solid #335577', color: '#aaaaff', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  btnRemove:   { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#1a0d0d', border: '1px solid #553333', color: '#cc8888', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  btnClear:    { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, background: '#1a1a0d', border: '1px solid #555533', color: '#cccc88', padding: '3px 8px', cursor: 'pointer', letterSpacing: 1 },
-  padLabel:    { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: '#4a9', cursor: 'pointer' },
+function getStyles(t) {
+  const isWb = t.name !== 'cyber'
+  return {
+    card:        { background: t.colors.cardBg, ...beveledBox(t), borderRadius: t.borders.radius, padding: 20, marginBottom: 16 },
+    titleRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    title:       { fontFamily: t.fonts.display, fontSize: 12, color: t.colors.accent, letterSpacing: isWb ? 1 : 3 },
+    titleActions:{ display: 'flex', gap: 6 },
+    count:       { color: t.colors.textDim, fontSize: 11 },
+    scroll:      { overflowX: 'auto' },
+    table:       { borderCollapse: 'collapse', width: '100%', minWidth: 800 },
+    th:          { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.textDim, padding: '4px 12px', textAlign: 'left', borderBottom: `1px solid ${t.colors.borderSecondary}`, letterSpacing: isWb ? 0 : 2 },
+    row:         { borderBottom: `1px solid ${t.colors.borderRow}` },
+    rowRemoved:  { opacity: 0.4 },
+    rowReplaced: { background: t.colors.rowReplacedBg },
+    rowInserted: { background: t.colors.rowInsertedBg },
+    td:          { fontFamily: t.fonts.mono, fontSize: 12, color: t.colors.textSecondary, padding: '6px 12px' },
+    tdMono:      { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.textSecondary, padding: '6px 12px' },
+    tdName:      { fontFamily: t.fonts.body, fontSize: 13, color: t.colors.textPrimary, padding: '6px 12px', fontWeight: 600 },
+    tdAction:    { padding: '6px 12px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' },
+    replLabel:   { fontSize: 10, color: t.colors.replLabel, fontFamily: t.fonts.mono, marginTop: 2 },
+    insertLabel: { fontSize: 10, color: t.colors.insertLabel, fontFamily: t.fonts.mono, marginTop: 2 },
+    btnSave:     wbButton(t, t.colors.btnSaveBg, t.colors.btnSaveBorder, t.colors.btnSaveText),
+    btnSaveAll:  wbButton(t, t.colors.btnSaveBg, t.colors.btnSaveBorder, t.colors.btnSaveText),
+    btnReplace:  wbButton(t, t.colors.btnReplaceBg, t.colors.btnReplaceBorder, t.colors.btnReplaceText),
+    btnInsert:   wbButton(t, t.colors.btnInsertBg, t.colors.btnInsertBorder, t.colors.btnInsertText),
+    btnRemove:   wbButton(t, t.colors.btnRemoveBg, t.colors.btnRemoveBorder, t.colors.btnRemoveText),
+    btnClear:    wbButton(t, t.colors.btnUndoBg, t.colors.btnUndoBorder, t.colors.btnUndoText),
+    padLabel:    { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.replLabel, cursor: 'pointer' },
+  }
 }

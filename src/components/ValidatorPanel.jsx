@@ -1,82 +1,93 @@
 // ValidatorPanel.jsx – Displays multi-stage validation results
 
 import React, { useState } from 'react'
+import { useTheme }   from '../theme/ThemeContext.jsx'
+import { beveledBox } from '../theme/workbenchPatterns.js'
 
 const ICONS = { ok: '✓', error: '✗', warn: '⚠' }
-const COLORS = { ok: '#4aaa66', error: '#ff4444', warn: '#ffaa00' }
 
-function Stage({ stage }) {
+function Stage({ stage, theme }) {
   const [open, setOpen] = useState(false)
-  const color = COLORS[stage.severity]
+  const s = getStyles(theme)
+
+  const severityColor = {
+    ok:    theme.colors.success,
+    error: theme.colors.error,
+    warn:  theme.colors.warning,
+  }[stage.severity]
 
   return (
-    <div style={styles.stage} onClick={() => setOpen(o => !o)}>
-      <div style={styles.stageHead}>
-        <span style={{ ...styles.icon, color }}>{ICONS[stage.severity]}</span>
-        <span style={styles.stageName}>{stage.name}</span>
-        <span style={{ ...styles.stageBadge, background: color + '22', color }}>
+    <div style={s.stage} onClick={() => setOpen(o => !o)}>
+      <div style={s.stageHead}>
+        <span style={{ ...s.icon, color: severityColor }}>{ICONS[stage.severity]}</span>
+        <span style={s.stageName}>{stage.name}</span>
+        <span style={{ ...s.stageBadge, background: severityColor + '22', color: severityColor }}>
           {stage.severity.toUpperCase()}
         </span>
-        {stage.detail && <span style={styles.arrow}>{open ? '▲' : '▼'}</span>}
+        {stage.detail && <span style={s.arrow}>{open ? '▲' : '▼'}</span>}
       </div>
       {open && stage.detail && (
-        <div style={styles.detail}>{stage.detail}</div>
+        <div style={s.detail}>{stage.detail}</div>
       )}
     </div>
   )
 }
 
 export function ValidatorPanel({ validationResult, onExport, onExportByteSwapped, assemblyResult }) {
+  const { theme } = useTheme()
+  const s = getStyles(theme)
+
   if (!validationResult) return null
 
   const { stages, passed, target } = validationResult
-  const errors = stages.filter(s => s.severity === 'error').length
-  const warns  = stages.filter(s => s.severity === 'warn').length
+  const errors = stages.filter(st => st.severity === 'error').length
+  const warns  = stages.filter(st => st.severity === 'warn').length
+  const isWb   = theme.name !== 'cyber'
 
   return (
-    <div style={styles.card}>
-      <div style={styles.title}>
-        ◈ VALIDATOR
-        <span style={styles.target}> {target === 'original' ? '[ ORIGINAL ROM ]' : '[ ASSEMBLED ROM ]'}</span>
+    <div style={s.card}>
+      <div style={s.title}>
+        {isWb ? '' : '◈ '}VALIDATOR
+        <span style={s.target}> {target === 'original' ? '[ ORIGINAL ROM ]' : '[ ASSEMBLED ROM ]'}</span>
       </div>
 
-      <div style={styles.summary}>
-        <span style={{ color: passed ? '#4aaa66' : '#ff4444', fontFamily: "'Orbitron', sans-serif", fontSize: 16 }}>
+      <div style={s.summary}>
+        <span style={{ color: passed ? theme.colors.success : theme.colors.error, fontFamily: theme.fonts.display, fontSize: 16 }}>
           {passed ? '✓ ALL CHECKS PASSED' : `✗ ${errors} ERROR${errors !== 1 ? 'S' : ''}`}
         </span>
         {warns > 0 && (
-          <span style={styles.warnCount}> · {warns} WARNING{warns !== 1 ? 'S' : ''}</span>
+          <span style={s.warnCount}> · {warns} WARNING{warns !== 1 ? 'S' : ''}</span>
         )}
       </div>
 
-      <div style={styles.stages}>
-        {stages.map(s => <Stage key={s.id} stage={s} />)}
+      <div style={s.stages}>
+        {stages.map(st => <Stage key={st.id} stage={st} theme={theme} />)}
       </div>
 
       {assemblyResult?.warnings?.length > 0 && (
-        <div style={styles.asmWarnings}>
-          <div style={styles.asmWarnTitle}>ASSEMBLER WARNINGS</div>
+        <div style={s.asmWarnings}>
+          <div style={s.asmWarnTitle}>ASSEMBLER WARNINGS</div>
           {assemblyResult.warnings.map((w, i) => (
-            <div key={i} style={styles.asmWarn}>⚠ {w}</div>
+            <div key={i} style={s.asmWarn}>⚠ {w}</div>
           ))}
         </div>
       )}
 
       {target === 'assembled' && (
-        <div style={styles.exportRow}>
+        <div style={s.exportRow}>
           <button
-            style={{ ...styles.exportBtn, ...(passed ? {} : styles.exportDisabled) }}
+            style={{ ...s.exportBtn, ...(passed ? {} : s.exportDisabled) }}
             onClick={passed ? onExport : undefined}
             disabled={!passed}
           >
-            {passed ? '◈ EXPORT ROM' : 'EXPORT BLOCKED – FIX ERRORS FIRST'}
+            {passed ? (isWb ? 'EXPORT ROM' : '◈ EXPORT ROM') : 'EXPORT BLOCKED – FIX ERRORS FIRST'}
           </button>
           {passed && onExportByteSwapped && (
             <button
-              style={styles.exportSwapBtn}
+              style={s.exportSwapBtn}
               onClick={onExportByteSwapped}
             >
-              ◈ EXPORT BYTE-SWAPPED
+              {isWb ? 'EXPORT BYTE-SWAPPED' : '◈ EXPORT BYTE-SWAPPED'}
             </button>
           )}
         </div>
@@ -85,25 +96,28 @@ export function ValidatorPanel({ validationResult, onExport, onExportByteSwapped
   )
 }
 
-const styles = {
-  card:          { background: '#0d1218', border: '1px solid #223344', borderRadius: 4, padding: 20, marginBottom: 16 },
-  title:         { fontFamily: "'Orbitron', sans-serif", fontSize: 12, color: '#ff6b00', letterSpacing: 3, marginBottom: 16 },
-  target:        { color: '#334455', fontSize: 10 },
-  summary:       { fontFamily: "'Share Tech Mono', monospace", marginBottom: 16, fontSize: 14 },
-  warnCount:     { color: '#ffaa00', fontFamily: "'Share Tech Mono', monospace" },
-  stages:        { display: 'flex', flexDirection: 'column', gap: 4 },
-  stage:         { background: '#0a0f14', border: '1px solid #1a2530', borderRadius: 3, padding: '8px 12px', cursor: 'pointer' },
-  stageHead:     { display: 'flex', alignItems: 'center', gap: 10 },
-  icon:          { fontFamily: 'monospace', fontSize: 14, width: 18, textAlign: 'center', flexShrink: 0 },
-  stageName:     { fontFamily: "'Exo 2', sans-serif", fontSize: 13, color: '#c8d8e8', flex: 1 },
-  stageBadge:    { fontFamily: "'Share Tech Mono', monospace", fontSize: 9, padding: '2px 6px', borderRadius: 2, letterSpacing: 1 },
-  arrow:         { color: '#334455', fontSize: 10, marginLeft: 4 },
-  detail:        { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#6a8090', marginTop: 8, paddingTop: 8, borderTop: '1px solid #1a2530', whiteSpace: 'pre-wrap', wordBreak: 'break-all' },
-  asmWarnings:   { marginTop: 16, background: '#0f1408', border: '1px solid #333300', borderRadius: 3, padding: 12 },
-  asmWarnTitle:  { fontFamily: "'Share Tech Mono', monospace", fontSize: 10, color: '#666600', letterSpacing: 2, marginBottom: 8 },
-  asmWarn:       { fontFamily: "'Share Tech Mono', monospace", fontSize: 11, color: '#aaaa44', marginBottom: 4 },
-  exportRow:     { marginTop: 20, display: 'flex', gap: 8 },
-  exportBtn:     { flex: 1, padding: '14px', fontFamily: "'Orbitron', sans-serif", fontSize: 13, letterSpacing: 3, background: '#ff6b00', color: '#000', border: 'none', borderRadius: 3, cursor: 'pointer', fontWeight: 700 },
-  exportSwapBtn: { flex: 1, padding: '14px', fontFamily: "'Orbitron', sans-serif", fontSize: 11, letterSpacing: 2, background: '#112233', color: '#ff6b00', border: '1px solid #ff6b00', borderRadius: 3, cursor: 'pointer', fontWeight: 700 },
-  exportDisabled:{ background: '#1a2530', color: '#334455', cursor: 'not-allowed' },
+function getStyles(t) {
+  const isWb = t.name !== 'cyber'
+  return {
+    card:          { background: t.colors.cardBg, ...beveledBox(t), borderRadius: t.borders.radius, padding: 20, marginBottom: 16 },
+    title:         { fontFamily: t.fonts.display, fontSize: 12, color: t.colors.accent, letterSpacing: isWb ? 1 : 3, marginBottom: 16 },
+    target:        { color: t.colors.textVeryDim, fontSize: 10 },
+    summary:       { fontFamily: t.fonts.mono, marginBottom: 16, fontSize: 14 },
+    warnCount:     { color: t.colors.warning, fontFamily: t.fonts.mono },
+    stages:        { display: 'flex', flexDirection: 'column', gap: 4 },
+    stage:         { background: t.colors.cardBgDeep, ...beveledBox(t, false), borderRadius: t.borders.radius, padding: '8px 12px', cursor: 'pointer' },
+    stageHead:     { display: 'flex', alignItems: 'center', gap: 10 },
+    icon:          { fontFamily: 'monospace', fontSize: 14, width: 18, textAlign: 'center', flexShrink: 0 },
+    stageName:     { fontFamily: t.fonts.body, fontSize: 13, color: t.colors.textPrimary, flex: 1 },
+    stageBadge:    { fontFamily: t.fonts.mono, fontSize: 9, padding: '2px 6px', borderRadius: t.borders.radius, letterSpacing: 1 },
+    arrow:         { color: t.colors.textVeryDim, fontSize: 10, marginLeft: 4 },
+    detail:        { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.textSecondary, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.colors.borderSecondary}`, whiteSpace: 'pre-wrap', wordBreak: 'break-all' },
+    asmWarnings:   { marginTop: 16, background: t.colors.warningBg, border: `1px solid ${t.colors.warningBorder}`, borderRadius: t.borders.radius, padding: 12 },
+    asmWarnTitle:  { fontFamily: t.fonts.mono, fontSize: 10, color: t.colors.warningLabel, letterSpacing: 2, marginBottom: 8 },
+    asmWarn:       { fontFamily: t.fonts.mono, fontSize: 11, color: t.colors.warningText, marginBottom: 4 },
+    exportRow:     { marginTop: 20, display: 'flex', gap: 8 },
+    exportBtn:     { flex: 1, padding: '14px', fontFamily: t.fonts.display, fontSize: 13, letterSpacing: isWb ? 1 : 3, background: t.colors.btnExportBg, color: t.colors.btnExportText, borderRadius: t.borders.radius, cursor: 'pointer', fontWeight: 700, ...beveledBox(t) },
+    exportSwapBtn: { flex: 1, padding: '14px', fontFamily: t.fonts.display, fontSize: 11, letterSpacing: isWb ? 1 : 2, background: t.colors.btnPrimaryBg, color: t.colors.btnPrimaryText, borderRadius: t.borders.radius, cursor: 'pointer', fontWeight: 700, ...beveledBox(t) },
+    exportDisabled:{ background: isWb ? t.colors.cardBgDeep : '#1a2530', color: t.colors.textVeryDim, cursor: 'not-allowed' },
+  }
 }
